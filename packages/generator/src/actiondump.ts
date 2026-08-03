@@ -163,6 +163,7 @@ export function normalizePlayerAction(action: RawAction): NormalizationResult {
 
     try {
         let iconArgumentIndex = 0;
+        const omittedInputs: Operation["omittedInputs"] = [];
 
         const inputs = action.slots.flatMap<OperationInput>(
             (slot, slotIndex) => {
@@ -279,6 +280,17 @@ export function normalizePlayerAction(action: RawAction): NormalizationResult {
                 const argument = resolveArgument(slot.argument, iconArgument);
 
                 if (!argument) {
+                    if (slot.optional) {
+                        omittedInputs.push({
+                            native: {
+                                slotId: slot.id,
+                                index: slot.index,
+                            },
+                            reason: "missing_public_metadata",
+                        });
+                        return [];
+                    }
+
                     throw new UnsupportedShapeError(
                         `${action.name}: cannot resolve argument metadata for slot ${slot.id}`,
                     );
@@ -334,6 +346,7 @@ export function normalizePlayerAction(action: RawAction): NormalizationResult {
             },
 
             inputs,
+            omittedInputs,
 
             tags: action.tags.map((tag) => ({
                 id: normalizeName(tag.name),

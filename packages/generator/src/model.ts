@@ -10,7 +10,16 @@ export interface Operation {
     };
 
     inputs: OperationInput[];
+    omittedInputs: OmittedInput[];
     tags: OperationTag[];
+}
+
+export interface OmittedInput {
+    native: {
+        slotId: number;
+        index: number;
+    };
+    reason: "missing_public_metadata";
 }
 
 export type UnsupportedReason =

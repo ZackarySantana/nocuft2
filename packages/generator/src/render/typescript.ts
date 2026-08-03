@@ -59,14 +59,37 @@ interface RenderedOperation {
     methods: string;
 }
 
-function renderOperationDocumentation(operation: Operation): string {
-    if (!operation.description) {
+function renderOperationDocumentation(
+    operation: Operation,
+    summary = operation.description,
+    indentation = "    ",
+): string {
+    if (!summary && operation.omittedInputs.length === 0) {
         return "";
     }
 
-    const description = operation.description.replaceAll("*/", "*\\/");
+    const safeSummary = summary.replaceAll("*/", "*\\/");
 
-    return `    /** ${description} */`;
+    if (operation.omittedInputs.length === 0) {
+        return `${indentation}/** ${safeSummary} */`;
+    }
+
+    const remarks = operation.omittedInputs.map(
+        (input) =>
+            `${indentation} * DiamondFire native input index ${input.native.index} ` +
+            `(slot ID ${input.native.slotId}) is omitted because its public ` +
+            "metadata is unavailable. DiamondFire's default behavior will be used.",
+    );
+
+    return [
+        `${indentation}/**`,
+        ...(safeSummary
+            ? [`${indentation} * ${safeSummary}`, `${indentation} *`]
+            : []),
+        `${indentation} * @remarks`,
+        ...remarks,
+        `${indentation} */`,
+    ].join("\n");
 }
 
 export interface RenderPlayerActionsResult {
@@ -100,6 +123,11 @@ function renderOperation(operation: Operation): RenderedOperation {
     }
 
     const optionsName = `${capitalize(operation.method)}Options`;
+    const optionsDocumentation = renderOperationDocumentation(
+        operation,
+        `Options for ${operation.method}.`,
+        "",
+    );
 
     const options = operation.tags.map((tag) => {
         const name = typescriptTagNames[tag.id] ?? camelCase(tag.id);
@@ -128,9 +156,14 @@ function renderOperation(operation: Operation): RenderedOperation {
         .join("\n");
 
     return {
-        topLevel: [`export interface ${optionsName} {`, ...options, "}"].join(
-            "\n",
-        ),
+        topLevel: [
+            optionsDocumentation,
+            `export interface ${optionsName} {`,
+            ...options,
+            "}",
+        ]
+            .filter(Boolean)
+            .join("\n"),
 
         methods: [method, configuredMethod].join("\n\n"),
     };

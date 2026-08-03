@@ -2,6 +2,7 @@
 
 import type { ComponentInput, Location, SoundInput } from "../values/index";
 
+/** Options for actionBar. */
 export interface ActionBarOptions {
     /** Default: "noSpaces" */
     readonly merging?: "addSpaces" | "noSpaces";
@@ -9,11 +10,13 @@ export interface ActionBarOptions {
     readonly inheritStyles?: boolean;
 }
 
+/** Options for attackAnimation. */
 export interface AttackAnimationOptions {
     /** Default: "swingMainArm" */
     readonly animationArm?: "swingMainArm" | "swingOffArm";
 }
 
+/** Options for bossBar. */
 export interface BossBarOptions {
     /** Default: "slot_1" */
     readonly barSlot?: "slot_1" | "slot_2" | "slot_3" | "slot_4" | "slot_5" | "slot_6" | "slot_7" | "slot_8" | "slot_9";
@@ -25,6 +28,7 @@ export interface BossBarOptions {
     readonly barColor?: "red" | "purple" | "pink" | "blue" | "green" | "yellow" | "white";
 }
 
+/** Options for clearInv. */
 export interface ClearInvOptions {
     /** Default: "entireInventory" */
     readonly clearMode?: "entireInventory" | "mainInventory" | "upperInventory" | "hotbar" | "armor";
@@ -32,11 +36,13 @@ export interface ClearInvOptions {
     readonly clearCraftingAndCursor?: boolean;
 }
 
+/** Options for closeInv. */
 export interface CloseInvOptions {
     /** Default: "enable" */
     readonly closePlayerInventory?: "enable" | "disable";
 }
 
+/** Options for combatAttribute. */
 export interface CombatAttributeOptions {
     /** Default: "attackDamage" */
     readonly attribute?: "attackDamage" | "attackSpeed" | "sweepingDamageRatio";
@@ -44,36 +50,43 @@ export interface CombatAttributeOptions {
     readonly valueType?: "direct" | "percentageBase" | "percentageRelative";
 }
 
+/** Options for damage. */
 export interface DamageOptions {
     /** Default: true */
     readonly ignoreFormatting?: boolean;
 }
 
+/** Options for displayBellRing. */
 export interface DisplayBellRingOptions {
     /** Default: "north" */
     readonly ringDirection?: "north" | "south" | "west" | "east";
 }
 
+/** Options for displayBlockOpen. */
 export interface DisplayBlockOpenOptions {
     /** Default: "open" */
     readonly containerState?: "open" | "closed";
 }
 
+/** Options for displayFracture. */
 export interface DisplayFractureOptions {
     /** Default: true */
     readonly overwritePreviousFracture?: boolean;
 }
 
+/** Options for displayGateway. */
 export interface DisplayGatewayOptions {
     /** Default: "initialBeam" */
     readonly animationType?: "initialBeam" | "periodicBeam";
 }
 
+/** Options for displayPickup. */
 export interface DisplayPickupOptions {
     /** Default: true */
     readonly ignoreFormatting?: boolean;
 }
 
+/** Options for displaySignText. */
 export interface DisplaySignTextOptions {
     /** Default: "front" */
     readonly signSide?: "front" | "back";
@@ -83,6 +96,7 @@ export interface DisplaySignTextOptions {
     readonly glowing?: "enable" | "disable";
 }
 
+/** Options for fallingAttribute. */
 export interface FallingAttributeOptions {
     /** Default: "gravity" */
     readonly attribute?: "gravity" | "safeFallDistance" | "fallDamageMultiplier";
@@ -90,16 +104,19 @@ export interface FallingAttributeOptions {
     readonly valueType?: "direct" | "percentageBase" | "percentageRelative";
 }
 
+/** Options for forceFlight. */
 export interface ForceFlightOptions {
     /** Default: "startFlight" */
     readonly flightMode?: "startFlight" | "stopFlight";
 }
 
+/** Options for giveExp. */
 export interface GiveExpOptions {
     /** Default: "points" */
     readonly giveExperience?: "points" | "levels" | "levelPercentage";
 }
 
+/** Options for healthAttribute. */
 export interface HealthAttributeOptions {
     /** Default: "maximumHealth" */
     readonly attribute?: "maximumHealth" | "maximumAbsorptionHealth" | "armor" | "armorToughness";
@@ -107,11 +124,13 @@ export interface HealthAttributeOptions {
     readonly valueType?: "direct" | "percentageBase" | "percentageRelative";
 }
 
+/** Options for instantRespawn. */
 export interface InstantRespawnOptions {
     /** Default: "enable" */
     readonly instantRespawn?: "enable" | "disable";
 }
 
+/** Options for kbattribute. */
 export interface KbattributeOptions {
     /** Default: "knockbackResistance" */
     readonly attribute?: "knockbackResistance" | "explosionKnockbackResistance";
@@ -119,11 +138,13 @@ export interface KbattributeOptions {
     readonly valueType?: "direct" | "percentageBase" | "percentageRelative";
 }
 
+/** Options for lSetHealth. */
 export interface LSetHealthOptions {
     /** Default: "regularHealth" */
     readonly healType?: "regularHealth" | "absorptionHealth" | "combinedHealth";
 }
 
+/** Options for launchFwd. */
 export interface LaunchFwdOptions {
     /** Default: true */
     readonly addToCurrentVelocity?: boolean;
@@ -131,6 +152,7 @@ export interface LaunchFwdOptions {
     readonly launchAxis?: "pitchAndYaw" | "yawOnly";
 }
 
+/** Options for launchToward. */
 export interface LaunchTowardOptions {
     /** Default: true */
     readonly addToCurrentVelocity?: boolean;
@@ -138,16 +160,19 @@ export interface LaunchTowardOptions {
     readonly ignoreDistance?: boolean;
 }
 
+/** Options for launchUp. */
 export interface LaunchUpOptions {
     /** Default: true */
     readonly addToCurrentVelocity?: boolean;
 }
 
+/** Options for loadInv. */
 export interface LoadInvOptions {
     /** Default: "synchronous" */
     readonly codeFlow?: "synchronous" | "asynchronous";
 }
 
+/** Options for lockDisgRotation. */
 export interface LockDisgRotationOptions {
     /** Default: "noChange" */
     readonly pitch?: "lock" | "unlock" | "noChange";
@@ -155,11 +180,13 @@ export interface LockDisgRotationOptions {
     readonly yaw?: "lock" | "unlock" | "noChange";
 }
 
+/** Options for mimic. */
 export interface MimicOptions {
     /** Default: "enable" */
     readonly removeOriginalEntity?: "enable" | "disable";
 }
 
+/** Options for miningAttribute. */
 export interface MiningAttributeOptions {
     /** Default: "blockBreakSpeed" */
     readonly attribute?: "blockBreakSpeed" | "miningEfficiency" | "submergedMiningSpeed";
@@ -167,6 +194,7 @@ export interface MiningAttributeOptions {
     readonly valueType?: "direct" | "percentageBase" | "percentageRelative";
 }
 
+/** Options for miscAttribute. */
 export interface MiscAttributeOptions {
     /** Default: "scale" */
     readonly attribute?: "scale" | "luck" | "oxygenBonus" | "burningTime" | "cameraDistance";
@@ -174,6 +202,7 @@ export interface MiscAttributeOptions {
     readonly valueType?: "direct" | "percentageBase" | "percentageRelative";
 }
 
+/** Options for movementAttribute. */
 export interface MovementAttributeOptions {
     /** Default: "walkingSpeed" */
     readonly attribute?: "walkingSpeed" | "flyingSpeed" | "jumpStrength" | "sneakingSpeed" | "stepHeight" | "movementEfficiency" | "waterMovementEfficiency";
@@ -181,16 +210,19 @@ export interface MovementAttributeOptions {
     readonly valueType?: "direct" | "percentageBase" | "percentageRelative";
 }
 
+/** Options for openSign. */
 export interface OpenSignOptions {
     /** Default: "front" */
     readonly signSide?: "front" | "back";
 }
 
+/** Options for openTradeMenu. */
 export interface OpenTradeMenuOptions {
     /** Default: true */
     readonly ignoreFormatting?: boolean;
 }
 
+/** Options for playEntitySound. */
 export interface PlayEntitySoundOptions {
     /** Default: "master" */
     readonly soundSource?: "master" | "music" | "jukeboxNoteBlocks" | "weather" | "blocks" | "hostileCreatures" | "friendlyCreatures" | "players" | "ambientEnvironment" | "voiceSpeech" | "ui";
@@ -198,11 +230,24 @@ export interface PlayEntitySoundOptions {
     readonly ignoreFormatting?: boolean;
 }
 
+/**
+ * Options for playSound.
+ *
+ * @remarks
+ * DiamondFire native input index 2 (slot ID 3) is omitted because its public metadata is unavailable. DiamondFire's default behavior will be used.
+ */
+export interface PlaySoundOptions {
+    /** Default: "master" */
+    readonly soundSource?: "master" | "music" | "jukeboxNoteBlocks" | "weather" | "blocks" | "hostileCreatures" | "friendlyCreatures" | "players" | "ambientEnvironment" | "voiceSpeech" | "ui";
+}
+
+/** Options for playSoundSeq. */
 export interface PlaySoundSeqOptions {
     /** Default: "master" */
     readonly soundSource?: "master" | "music" | "jukeboxNoteBlocks" | "weather" | "blocks" | "hostileCreatures" | "friendlyCreatures" | "players" | "ambientEnvironment" | "voiceSpeech" | "ui";
 }
 
+/** Options for reachAttribute. */
 export interface ReachAttributeOptions {
     /** Default: "blockInteractionRange" */
     readonly attribute?: "blockInteractionRange" | "entityInteractionRange";
@@ -210,41 +255,49 @@ export interface ReachAttributeOptions {
     readonly valueType?: "direct" | "percentageBase" | "percentageRelative";
 }
 
+/** Options for removeBossBar. */
 export interface RemoveBossBarOptions {
     /** Default: "allBossBars" */
     readonly bossBarSlot?: "allBossBars" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9";
 }
 
+/** Options for removeInvRow. */
 export interface RemoveInvRowOptions {
     /** Default: "bottomRow" */
     readonly rowToRemove?: "topRow" | "bottomRow";
 }
 
+/** Options for rideEntity. */
 export interface RideEntityOptions {
     /** Default: true */
     readonly ignoreFormatting?: boolean;
 }
 
+/** Options for rngTeleport. */
 export interface RngTeleportOptions {
     /** Default: false */
     readonly keepCurrentRotation?: boolean;
 }
 
+/** Options for scoreDefFormat. */
 export interface ScoreDefFormatOptions {
     /** Default: "fixed" */
     readonly numberFormat?: "fixed" | "styled" | "blank" | "reset";
 }
 
+/** Options for scoreLineFormat. */
 export interface ScoreLineFormatOptions {
     /** Default: "fixed" */
     readonly numberFormat?: "fixed" | "styled" | "blank" | "reset";
 }
 
+/** Options for sendAnimation. */
 export interface SendAnimationOptions {
     /** Default: "hurtAnimation" */
     readonly animationType?: "hurtAnimation" | "wakeUpFadeEffect";
 }
 
+/** Options for sendMessage. */
 export interface SendMessageOptions {
     /** Default: "regular" */
     readonly alignment?: "regular" | "centered";
@@ -254,36 +307,43 @@ export interface SendMessageOptions {
     readonly inheritStyles?: boolean;
 }
 
+/** Options for sendMessageSeq. */
 export interface SendMessageSeqOptions {
     /** Default: "regular" */
     readonly alignment?: "regular" | "centered";
 }
 
+/** Options for setAllowFlight. */
 export interface SetAllowFlightOptions {
     /** Default: "enable" */
     readonly allowFlight?: "enable" | "disable";
 }
 
+/** Options for setAllowPvp. */
 export interface SetAllowPvpOptions {
     /** Default: "disable" */
     readonly pvp?: "enable" | "disable";
 }
 
+/** Options for setCollidable. */
 export interface SetCollidableOptions {
     /** Default: "disable" */
     readonly collision?: "enable" | "disable";
 }
 
+/** Options for setDisguiseVisible. */
 export interface SetDisguiseVisibleOptions {
     /** Default: "disable" */
     readonly disguiseVisible?: "enable" | "disable";
 }
 
+/** Options for setDropsEnabled. */
 export interface SetDropsEnabledOptions {
     /** Default: "enable" */
     readonly spawnDeathDrops?: "enable" | "disable";
 }
 
+/** Options for setEntityHidden. */
 export interface SetEntityHiddenOptions {
     /** Default: "enable" */
     readonly hidden?: "enable" | "disable";
@@ -291,21 +351,25 @@ export interface SetEntityHiddenOptions {
     readonly ignoreFormatting?: boolean;
 }
 
+/** Options for setExp. */
 export interface SetExpOptions {
     /** Default: "level" */
     readonly setExperience?: "points" | "level" | "levelPercentage";
 }
 
+/** Options for setFlying. */
 export interface SetFlyingOptions {
     /** Default: "enable" */
     readonly flying?: "enable" | "disable";
 }
 
+/** Options for setFreezeTicks. */
 export interface SetFreezeTicksOptions {
     /** Default: "disable" */
     readonly tickingLocked?: "enable" | "disable";
 }
 
+/** Options for setGamemode. */
 export interface SetGamemodeOptions {
     /** Default: "respectGamemode" */
     readonly flightMode?: "respectGamemode" | "keepOriginal";
@@ -313,46 +377,66 @@ export interface SetGamemodeOptions {
     readonly gamemode?: "survival" | "creative" | "adventure";
 }
 
+/** Options for setGliding. */
 export interface SetGlidingOptions {
     /** Default: "enable" */
     readonly gliding?: "enable" | "disable";
 }
 
+/** Options for setHandCrafting. */
 export interface SetHandCraftingOptions {
     /** Default: "disable" */
     readonly allowHandCrafting?: "enable" | "disable";
 }
 
+/** Options for setInventoryKept. */
 export interface SetInventoryKeptOptions {
     /** Default: "enable" */
     readonly inventoryKept?: "enable" | "disable";
 }
 
+/** Options for setMaxHealth. */
 export interface SetMaxHealthOptions {
     /** Default: false */
     readonly healPlayerToMaxHealth?: boolean;
 }
 
+/**
+ * Options for setNameColor.
+ *
+ * @remarks
+ * DiamondFire native input index 0 (slot ID 1) is omitted because its public metadata is unavailable. DiamondFire's default behavior will be used.
+ */
+export interface SetNameColorOptions {
+    /** Default: "black" */
+    readonly nameColor?: "black" | "darkBlue" | "darkGreen" | "darkAqua" | "darkRed" | "darkPurple" | "gold" | "gray" | "darkGray" | "blue" | "green" | "aqua" | "red" | "lightPurple" | "yellow" | "white" | "none";
+}
+
+/** Options for setNamePrefix. */
 export interface SetNamePrefixOptions {
     /** Default: "prefix" */
     readonly textType?: "prefix" | "suffix";
 }
 
+/** Options for setNameVisible. */
 export interface SetNameVisibleOptions {
     /** Default: "disable" */
     readonly nameTagVisible?: "enable" | "disable";
 }
 
+/** Options for setPlayerWeather. */
 export interface SetPlayerWeatherOptions {
     /** Default: "downfall" */
     readonly weather?: "clear" | "downfall";
 }
 
+/** Options for setReducedDebug. */
 export interface SetReducedDebugOptions {
     /** Default: "enable" */
     readonly reducedDebugInfoEnabled?: "enable" | "disable";
 }
 
+/** Options for setShoulder. */
 export interface SetShoulderOptions {
     /** Default: "left" */
     readonly shoulder?: "left" | "right";
@@ -360,16 +444,19 @@ export interface SetShoulderOptions {
     readonly type?: "remove" | "red" | "blue" | "green" | "cyan" | "gray";
 }
 
+/** Options for setSidebar. */
 export interface SetSidebarOptions {
     /** Default: "enable" */
     readonly sidebar?: "enable" | "disable";
 }
 
+/** Options for setSpeed. */
 export interface SetSpeedOptions {
     /** Default: "groundSpeed" */
     readonly speedType?: "groundSpeed" | "flightSpeed" | "both";
 }
 
+/** Options for setTabListInfo. */
 export interface SetTabListInfoOptions {
     /** Default: "header" */
     readonly playerListField?: "header" | "footer";
@@ -379,26 +466,31 @@ export interface SetTabListInfoOptions {
     readonly inheritStyles?: boolean;
 }
 
+/** Options for setVisualFire. */
 export interface SetVisualFireOptions {
     /** Default: "enable" */
     readonly onFire?: "enable" | "disable";
 }
 
+/** Options for spectateTarget. */
 export interface SpectateTargetOptions {
     /** Default: true */
     readonly ignoreFormatting?: boolean;
 }
 
+/** Options for spectatorCollision. */
 export interface SpectatorCollisionOptions {
     /** Default: "enable" */
     readonly spectatorCollision?: "enable" | "disable";
 }
 
+/** Options for stopSound. */
 export interface StopSoundOptions {
     /** Default: "master" */
     readonly soundSource?: "master" | "music" | "jukeboxNoteBlocks" | "weather" | "blocks" | "hostileCreatures" | "friendlyCreatures" | "players" | "ambientEnvironment" | "voiceSpeech" | "ui";
 }
 
+/** Options for teleport. */
 export interface TeleportOptions {
     /** Default: false */
     readonly keepCurrentRotation?: boolean;
@@ -704,6 +796,22 @@ export interface PlayerActions {
     /** Plays a sound that follows a moving entity or player. */
     playEntitySoundWith(options: PlayEntitySoundOptions, soundToPlay: SoundInput[], targetUuid: string): void;
 
+    /**
+     * Plays a sound for a player.
+     *
+     * @remarks
+     * DiamondFire native input index 2 (slot ID 3) is omitted because its public metadata is unavailable. DiamondFire's default behavior will be used.
+     */
+    playSound(soundToPlay: SoundInput[], playbackLocation?: Location): void;
+
+    /**
+     * Plays a sound for a player.
+     *
+     * @remarks
+     * DiamondFire native input index 2 (slot ID 3) is omitted because its public metadata is unavailable. DiamondFire's default behavior will be used.
+     */
+    playSoundWith(options: PlaySoundOptions, soundToPlay: SoundInput[], playbackLocation?: Location): void;
+
     /** Plays a sequence of sounds to a player, with a delay between each sound. */
     playSoundSeq(soundsToPlay: SoundInput[], soundDelayTicksDefault_60?: number, playbackLocation?: Location): void;
 
@@ -928,6 +1036,22 @@ export interface PlayerActions {
 
     /** Sets a player's maximum health. */
     setMaxHealthWith(options: SetMaxHealthOptions, maximumHealth: number): void;
+
+    /**
+     * Sets the color a player's name tag appears in.
+     *
+     * @remarks
+     * DiamondFire native input index 0 (slot ID 1) is omitted because its public metadata is unavailable. DiamondFire's default behavior will be used.
+     */
+    setNameColor(): void;
+
+    /**
+     * Sets the color a player's name tag appears in.
+     *
+     * @remarks
+     * DiamondFire native input index 0 (slot ID 1) is omitted because its public metadata is unavailable. DiamondFire's default behavior will be used.
+     */
+    setNameColorWith(options: SetNameColorOptions): void;
 
     /** Sets the prefix or suffix for the player's name. */
     setNamePrefix(...prefixSuffixText: ComponentInput[]): void;

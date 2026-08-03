@@ -45,6 +45,15 @@ const allUnsupportedOperations = [
     ...unsupportedOperations,
     ...renderedPlayerActions.unsupported,
 ];
+const rendererUnsupportedIds = new Set(
+    renderedPlayerActions.unsupported.map((operation) => operation.id),
+);
+const supportedOperations = operations.filter(
+    (operation) => !rendererUnsupportedIds.has(operation.id),
+);
+const partiallySupportedOperations = supportedOperations.filter(
+    (operation) => operation.omittedInputs.length > 0,
+);
 const unsupportedOutput = renderUnsupportedActions(allUnsupportedOperations);
 const soundsOutput = renderSounds(normalizeSounds(parsed.sounds));
 const outputUrl = new URL(
@@ -65,3 +74,11 @@ await Promise.all([
     writeFile(unsupportedOutputUrl, unsupportedOutput, "utf8"),
     writeFile(soundsOutputUrl, soundsOutput, "utf8"),
 ]);
+
+console.log(
+    [
+        `Generated ${supportedOperations.length} player actions`,
+        `(${partiallySupportedOperations.length} partial)`,
+        `and documented ${allUnsupportedOperations.length} unsupported actions.`,
+    ].join(" "),
+);

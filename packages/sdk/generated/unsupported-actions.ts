@@ -312,16 +312,6 @@ export interface UnsupportedPlayerActions {
         "Unsupported input type: particle"
     >;
     /**
-     * DiamondFire player_action/PlaySound.
-     * Unsupported: unsupported_shape.
-     * PlaySound: cannot resolve argument metadata for slot 3
-     */
-    readonly playSound: UnsupportedAction<
-        "PlaySound",
-        "unsupported_shape",
-        "PlaySound: cannot resolve argument metadata for slot 3"
-    >;
-    /**
      * DiamondFire player_action/PlayerDisguise.
      * Unsupported: unsupported_type.
      * Unsupported input type: item
@@ -443,13 +433,13 @@ export interface UnsupportedPlayerActions {
     >;
     /**
      * DiamondFire player_action/SetItemCooldown.
-     * Unsupported: unsupported_shape.
-     * SetItemCooldown: cannot resolve argument metadata for slot 2
+     * Unsupported: unsupported_type.
+     * Unsupported input type: item
      */
     readonly setItemCooldown: UnsupportedAction<
         "SetItemCooldown",
-        "unsupported_shape",
-        "SetItemCooldown: cannot resolve argument metadata for slot 2"
+        "unsupported_type",
+        "Unsupported input type: item"
     >;
     /**
      * DiamondFire player_action/SetItems.
@@ -470,16 +460,6 @@ export interface UnsupportedPlayerActions {
         "SetMenuItem",
         "unsupported_type",
         "Unsupported input type: item"
-    >;
-    /**
-     * DiamondFire player_action/SetNameColor.
-     * Unsupported: unsupported_shape.
-     * SetNameColor: cannot resolve argument metadata for slot 1
-     */
-    readonly setNameColor: UnsupportedAction<
-        "SetNameColor",
-        "unsupported_shape",
-        "SetNameColor: cannot resolve argument metadata for slot 1"
     >;
     /**
      * DiamondFire player_action/SetSkin.

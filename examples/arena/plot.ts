@@ -40,7 +40,7 @@ function startGame(): void {
     player.set(bearer, true);
     player.giveItem(items.create("mace or something"));
     broadcast(`${player.name()} has the mace!`);
-    players.all().playSoundSeq(["item.trident.thunder"]);
+    players.all().playSound(["item.trident.thunder"]);
 
     queued.clearAll(); // Shorthand for clearing all players, like queued.get(players.all()).clear()
     queuedAmount.clear();
@@ -113,6 +113,6 @@ export function smash(event: PlayerAttackPlayer) {
 
     if (bearer.get(attacker) && attacker.isHolding("mace or whatever")) {
         event.setDamage(999);
-        players.all().playSoundSeq(["item.trident.thunder"]);
+        players.all().playSound(["item.trident.thunder"]);
     }
 }

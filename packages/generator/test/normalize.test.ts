@@ -133,3 +133,27 @@ test("renders sound action inputs using SoundInput", () => {
     assert.match(rendered.source, /soundsToPlay: SoundInput\[\]/);
     assert.deepEqual(rendered.unsupported, []);
 });
+
+test("partially supports optional slots without public metadata", () => {
+    const operation = requireOperation(
+        normalizePlayerAction(findPlayerAction("PlaySound")),
+    );
+
+    assert.deepEqual(operation.omittedInputs, [
+        {
+            native: {
+                slotId: 3,
+                index: 2,
+            },
+            reason: "missing_public_metadata",
+        },
+    ]);
+
+    const rendered = renderPlayerActions([operation]);
+    assert.match(rendered.source, /playSound\(/);
+    assert.match(
+        rendered.source,
+        /native input index 2 \(slot ID 3\) is omitted/,
+    );
+    assert.deepEqual(rendered.unsupported, []);
+});
