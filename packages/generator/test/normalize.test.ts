@@ -3,11 +3,13 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import {
     normalizePlayerAction,
+    normalizeSounds,
     type RawAction,
     type RawActionDump,
 } from "../src/actiondump.js";
 import type { NormalizationResult, Operation } from "../src/model.js";
 import { renderPlayerActions } from "../src/render/typescript.js";
+import { renderSounds } from "../src/render/values.js";
 
 const source = await readFile(
     new URL("../src/actiondump.json", import.meta.url),
@@ -37,6 +39,7 @@ test("normalizes SendMessage tags and plural input", () => {
     );
 
     assert.equal(operation.method, "sendMessage");
+    assert.equal(operation.description, "Sends a chat message to a player.");
     assert.equal(operation.inputs.length, 1);
     assert.equal(operation.inputs[0].cardinality, "plural");
     assert.deepEqual(
@@ -98,8 +101,35 @@ test("renders supported player operations", () => {
 
     assert.match(
         rendered.source,
-        /sendMessage\(\.\.\.messages: MessagePart\[\]\): void;/,
+        /sendMessage\(\.\.\.messages: ComponentInput\[\]\): void;/,
+    );
+    assert.match(
+        rendered.source,
+        /\/\*\* Sends a chat message to a player\. \*\//,
     );
     assert.match(rendered.source, /setHealth\(health: number\): void;/);
+    assert.deepEqual(rendered.unsupported, []);
+});
+
+test("generates known sound IDs and accepts custom sounds", () => {
+    const sounds = normalizeSounds(actionDump.sounds);
+    const rendered = renderSounds(sounds);
+
+    assert.ok(sounds.some((sound) => sound.id === "item.trident.thunder"));
+    assert.match(rendered, /"item\.trident\.thunder"/);
+    assert.match(rendered, /SoundInput = SoundId \| \(string & \{\}\)/);
+});
+
+test("renders sound action inputs using SoundInput", () => {
+    const operation = requireOperation(
+        normalizePlayerAction(findPlayerAction("PlaySoundSeq")),
+    );
+    const rendered = renderPlayerActions([operation]);
+
+    assert.match(
+        rendered.source,
+        /import type \{ Location, SoundInput \} from "\.\.\/values\/index";/,
+    );
+    assert.match(rendered.source, /soundsToPlay: SoundInput\[\]/);
     assert.deepEqual(rendered.unsupported, []);
 });

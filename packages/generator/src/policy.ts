@@ -19,6 +19,10 @@ export const typescriptTypes: Readonly<Record<string, TypeScriptTypePolicy>> = {
         name: "ComponentInput",
         importFrom: "../values/index",
     },
+    sound: {
+        name: "SoundInput",
+        importFrom: "../values/index",
+    },
 };
 
 export const typescriptInputNames: Readonly<Record<string, string>> = {

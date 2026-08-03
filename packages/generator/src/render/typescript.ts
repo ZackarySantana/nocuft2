@@ -59,6 +59,16 @@ interface RenderedOperation {
     methods: string;
 }
 
+function renderOperationDocumentation(operation: Operation): string {
+    if (!operation.description) {
+        return "";
+    }
+
+    const description = operation.description.replaceAll("*/", "*\\/");
+
+    return `    /** ${description} */`;
+}
+
 export interface RenderPlayerActionsResult {
     source: string;
     unsupported: UnsupportedOperation[];
@@ -75,11 +85,17 @@ function renderOperation(operation: Operation): RenderedOperation {
         renderInput(input, index === operation.inputs.length - 1),
     );
     const parameters = renderedInputs.join(", ");
+    const documentation = renderOperationDocumentation(operation);
 
     if (operation.tags.length === 0) {
         return {
             topLevel: "",
-            methods: `    ${operation.method}(${parameters}): void;`,
+            methods: [
+                documentation,
+                `    ${operation.method}(${parameters}): void;`,
+            ]
+                .filter(Boolean)
+                .join("\n"),
         };
     }
 
@@ -98,16 +114,25 @@ function renderOperation(operation: Operation): RenderedOperation {
         `options: ${optionsName}`,
         ...renderedInputs,
     ].join(", ");
+    const method = [
+        documentation,
+        `    ${operation.method}(${parameters}): void;`,
+    ]
+        .filter(Boolean)
+        .join("\n");
+    const configuredMethod = [
+        documentation,
+        `    ${operation.method}With(${configuredParameters}): void;`,
+    ]
+        .filter(Boolean)
+        .join("\n");
 
     return {
         topLevel: [`export interface ${optionsName} {`, ...options, "}"].join(
             "\n",
         ),
 
-        methods: [
-            `    ${operation.method}(${parameters}): void;`,
-            `    ${operation.method}With(${configuredParameters}): void;`,
-        ].join("\n"),
+        methods: [method, configuredMethod].join("\n\n"),
     };
 }
 

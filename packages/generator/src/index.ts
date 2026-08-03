@@ -1,9 +1,14 @@
 import { readFile, writeFile } from "node:fs/promises";
-import { normalizePlayerAction, type RawActionDump } from "./actiondump.js";
+import {
+    normalizePlayerAction,
+    normalizeSounds,
+    type RawActionDump,
+} from "./actiondump.js";
 import {
     renderPlayerActions,
     renderUnsupportedActions,
 } from "./render/typescript.js";
+import { renderSounds } from "./render/values.js";
 
 const actionDumpURL = new URL("./actiondump.json", import.meta.url);
 
@@ -12,6 +17,9 @@ const parsed: RawActionDump = JSON.parse(source);
 
 if (!Array.isArray(parsed.actions)) {
     throw new Error("actions is not an array");
+}
+if (!Array.isArray(parsed.sounds)) {
+    throw new Error("sounds is not an array");
 }
 const playerActions = parsed.actions.filter(
     (action) =>
@@ -38,6 +46,7 @@ const allUnsupportedOperations = [
     ...renderedPlayerActions.unsupported,
 ];
 const unsupportedOutput = renderUnsupportedActions(allUnsupportedOperations);
+const soundsOutput = renderSounds(normalizeSounds(parsed.sounds));
 const outputUrl = new URL(
     "../../sdk/generated/player-actions.ts",
     import.meta.url,
@@ -46,8 +55,13 @@ const unsupportedOutputUrl = new URL(
     "../../sdk/generated/unsupported-actions.ts",
     import.meta.url,
 );
+const soundsOutputUrl = new URL(
+    "../../sdk/generated/sounds.ts",
+    import.meta.url,
+);
 
 await Promise.all([
     writeFile(outputUrl, renderedPlayerActions.source, "utf8"),
     writeFile(unsupportedOutputUrl, unsupportedOutput, "utf8"),
+    writeFile(soundsOutputUrl, soundsOutput, "utf8"),
 ]);

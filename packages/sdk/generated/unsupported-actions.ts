@@ -312,16 +312,6 @@ export interface UnsupportedPlayerActions {
         "Unsupported input type: particle"
     >;
     /**
-     * DiamondFire player_action/PlayEntitySound.
-     * Unsupported: unsupported_type.
-     * Unsupported input type: sound
-     */
-    readonly playEntitySound: UnsupportedAction<
-        "PlayEntitySound",
-        "unsupported_type",
-        "Unsupported input type: sound"
-    >;
-    /**
      * DiamondFire player_action/PlaySound.
      * Unsupported: unsupported_shape.
      * PlaySound: cannot resolve argument metadata for slot 3
@@ -330,16 +320,6 @@ export interface UnsupportedPlayerActions {
         "PlaySound",
         "unsupported_shape",
         "PlaySound: cannot resolve argument metadata for slot 3"
-    >;
-    /**
-     * DiamondFire player_action/PlaySoundSeq.
-     * Unsupported: unsupported_type.
-     * Unsupported input type: sound
-     */
-    readonly playSoundSeq: UnsupportedAction<
-        "PlaySoundSeq",
-        "unsupported_type",
-        "Unsupported input type: sound"
     >;
     /**
      * DiamondFire player_action/PlayerDisguise.
@@ -540,15 +520,5 @@ export interface UnsupportedPlayerActions {
         "ShowInv",
         "unsupported_type",
         "Unsupported input type: item"
-    >;
-    /**
-     * DiamondFire player_action/StopSound.
-     * Unsupported: unsupported_type.
-     * Unsupported input type: sound
-     */
-    readonly stopSound: UnsupportedAction<
-        "StopSound",
-        "unsupported_type",
-        "Unsupported input type: sound"
     >;
 }

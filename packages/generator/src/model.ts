@@ -2,6 +2,7 @@ export interface Operation {
     id: string;
     receiver: "player";
     method: string;
+    description: string;
 
     native: {
         block: string;
@@ -72,4 +73,9 @@ export interface OperationTag {
     id: string;
     defaultOption: string;
     options: string[];
+}
+
+export interface SoundDefinition {
+    id: string;
+    native: string;
 }

@@ -2,12 +2,19 @@ import type {
     NormalizationResult,
     Operation,
     OperationInput,
+    SoundDefinition,
     UnsupportedOperation,
 } from "./model.js";
 import { camelCase, normalizeName } from "./util/strings.js";
 
 export interface RawActionDump {
     actions: RawAction[];
+    sounds: RawSound[];
+}
+
+export interface RawSound {
+    sound: string;
+    soundId: string;
 }
 
 export interface RawAction {
@@ -316,6 +323,10 @@ export function normalizePlayerAction(action: RawAction): NormalizationResult {
             id: `player.${normalizeName(action.name)}`,
             receiver: "player",
             method: camelCase(action.name),
+            description: action.icon.description
+                .join(" ")
+                .replace(/\s+/g, " ")
+                .trim(),
 
             native: {
                 block: "player_action",
@@ -350,4 +361,25 @@ export function normalizePlayerAction(action: RawAction): NormalizationResult {
             cause,
         });
     }
+}
+
+export function normalizeSounds(
+    sounds: readonly RawSound[],
+): SoundDefinition[] {
+    const normalized = sounds.map((sound) => ({
+        id: sound.soundId,
+        native: sound.sound,
+    }));
+    const seen = new Set<string>();
+
+    for (const sound of normalized) {
+        if (seen.has(sound.id)) {
+            throw new Error(`Duplicate sound ID: ${sound.id}`);
+        }
+        seen.add(sound.id);
+    }
+
+    return normalized.toSorted((left, right) =>
+        left.id.localeCompare(right.id),
+    );
 }
