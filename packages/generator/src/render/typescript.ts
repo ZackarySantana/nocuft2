@@ -39,7 +39,24 @@ function getTagDefault(tag: OperationTag): string {
 
 class UnsupportedTypeError extends Error {}
 
-function renderInput(input: OperationInput, isLast: boolean): string {
+function isOptionalInput(input: OperationInput): boolean {
+    return input.cardinality === "single"
+        ? input.optional
+        : input.minimumLength === 0;
+}
+
+function hasRequiredInputAfter(
+    inputs: readonly OperationInput[],
+    index: number,
+): boolean {
+    return inputs.slice(index + 1).some((input) => !isOptionalInput(input));
+}
+
+function renderInput(
+    input: OperationInput,
+    isLast: boolean,
+    hasRequiredAfter: boolean,
+): string {
     const name = typescriptInputNames[input.id] ?? camelCase(input.id);
     const policy = typescriptTypes[input.type];
     if (!policy) {
@@ -48,10 +65,22 @@ function renderInput(input: OperationInput, isLast: boolean): string {
     const type = policy.name;
 
     if (input.cardinality === "plural") {
-        return isLast ? `...${name}: ${type}[]` : `${name}: ${type}[]`;
+        if (isLast) {
+            return `...${name}: ${type}[]`;
+        }
+
+        return input.minimumLength === 0 && hasRequiredAfter
+            ? `${name}: ${type}[] | undefined`
+            : `${name}: ${type}[]`;
     }
 
-    return `${name}${input.optional ? "?" : ""}: ${type}`;
+    if (!input.optional) {
+        return `${name}: ${type}`;
+    }
+
+    return hasRequiredAfter
+        ? `${name}: ${type} | undefined`
+        : `${name}?: ${type}`;
 }
 
 interface RenderedOperation {
@@ -105,7 +134,11 @@ function renderOperation(operation: Operation): RenderedOperation {
     }
 
     const renderedInputs = operation.inputs.map((input, index) =>
-        renderInput(input, index === operation.inputs.length - 1),
+        renderInput(
+            input,
+            index === operation.inputs.length - 1,
+            hasRequiredInputAfter(operation.inputs, index),
+        ),
     );
     const parameters = renderedInputs.join(", ");
     const documentation = renderOperationDocumentation(operation);

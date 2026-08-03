@@ -1,5 +1,5 @@
 // This is psydo code and should not be used as documentation.
-import { plot, players, location } from "@nocuft/diamondfire";
+import { plot, players, location, item } from "@nocuft/diamondfire";
 
 const lobby = location(0, 65, 0);
 const arena = location(48, 65, 0);
@@ -38,7 +38,7 @@ function startGame(): void {
 
     let player = players.all().where(queued, true).one();
     player.set(bearer, true);
-    player.giveItem(items.create("mace or something"));
+    player.giveItems([item("mace or something")]);
     broadcast(`${player.name()} has the mace!`);
     players.all().playSound(["item.trident.thunder"]);
 

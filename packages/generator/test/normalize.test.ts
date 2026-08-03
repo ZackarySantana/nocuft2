@@ -157,3 +157,16 @@ test("partially supports optional slots without public metadata", () => {
     );
     assert.deepEqual(rendered.unsupported, []);
 });
+
+test("requires undefined for optional inputs before required inputs", () => {
+    const operation = requireOperation(
+        normalizePlayerAction(findPlayerAction("SetSlotItem")),
+    );
+    const rendered = renderPlayerActions([operation]);
+
+    assert.match(
+        rendered.source,
+        /setSlotItem\(itemToSet: Item \| undefined, slotToSet: number\): void;/,
+    );
+    assert.deepEqual(rendered.unsupported, []);
+});

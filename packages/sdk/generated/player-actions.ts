@@ -1,6 +1,6 @@
 // This file is generated. Do not edit manually.
 
-import type { ComponentInput, Location, SoundInput } from "../values/index";
+import type { ComponentInput, Item, Location, SoundInput } from "../values/index";
 
 /** Options for actionBar. */
 export interface ActionBarOptions {
@@ -8,6 +8,12 @@ export interface ActionBarOptions {
     readonly merging?: "addSpaces" | "noSpaces";
     /** Default: true */
     readonly inheritStyles?: boolean;
+}
+
+/** Options for addInvRow. */
+export interface AddInvRowOptions {
+    /** Default: "bottomRow" */
+    readonly newRowPosition?: "topRow" | "bottomRow";
 }
 
 /** Options for attackAnimation. */
@@ -291,6 +297,12 @@ export interface ScoreLineFormatOptions {
     readonly numberFormat?: "fixed" | "styled" | "blank" | "reset";
 }
 
+/** Options for sendAdvancement. */
+export interface SendAdvancementOptions {
+    /** Default: "advancement" */
+    readonly toastType?: "advancement" | "goal" | "challenge";
+}
+
 /** Options for sendAnimation. */
 export interface SendAnimationOptions {
     /** Default: "hurtAnimation" */
@@ -351,6 +363,12 @@ export interface SetEntityHiddenOptions {
     readonly ignoreFormatting?: boolean;
 }
 
+/** Options for setEquipment. */
+export interface SetEquipmentOptions {
+    /** Default: "mainHand" */
+    readonly equipmentSlot?: "mainHand" | "offHand" | "head" | "chest" | "legs" | "feet";
+}
+
 /** Options for setExp. */
 export interface SetExpOptions {
     /** Default: "level" */
@@ -387,6 +405,12 @@ export interface SetGlidingOptions {
 export interface SetHandCraftingOptions {
     /** Default: "disable" */
     readonly allowHandCrafting?: "enable" | "disable";
+}
+
+/** Options for setHandItem. */
+export interface SetHandItemOptions {
+    /** Default: "mainHand" */
+    readonly handSlot?: "mainHand" | "offHand";
 }
 
 /** Options for setInventoryKept. */
@@ -505,6 +529,12 @@ export interface PlayerActions {
     /** Displays text directly above a player's hotbar. */
     actionBarWith(options: ActionBarOptions, ...messages: ComponentInput[]): void;
 
+    /** Adds a row to the bottom of a player's current inventory menu. */
+    addInvRow(...itemsToDisplay: Item[]): void;
+
+    /** Adds a row to the bottom of a player's current inventory menu. */
+    addInvRowWith(options: AddInvRowOptions, ...itemsToDisplay: Item[]): void;
+
     /** Sets a player's game mode to Adventure. */
     adventureMode(): void;
 
@@ -516,6 +546,9 @@ export interface PlayerActions {
 
     /** Makes a player perform an attack animation. */
     attackAnimationWith(options: AttackAnimationOptions): void;
+
+    /** Boosts a player's elytra using a firework rocket. */
+    boostElytra(firework: Item): void;
 
     /** Creates or modifies a custom boss health bar at the top of a player's screen. */
     bossBar(title?: string, health?: number, maximumHealth?: number): void;
@@ -540,6 +573,9 @@ export interface PlayerActions {
 
     /** Empties a player's inventory. */
     clearInvWith(options: ClearInvOptions): void;
+
+    /** Removes all of an item from a player. */
+    clearItems(...itemSToClear: Item[]): void;
 
     /** Removes all active potion effects from a player. */
     clearPotions(): void;
@@ -634,6 +670,9 @@ export interface PlayerActions {
     /** Allows the player to damage other players. */
     enablePvp(): void;
 
+    /** Adds 3 more rows to a player's current inventory menu using the contents of the chest. */
+    expandInv(...itemsToDisplay: Item[]): void;
+
     /** Rotates a player to look toward a location without teleporting them. */
     faceLocation(locationToFace: Location): void;
 
@@ -660,6 +699,12 @@ export interface PlayerActions {
 
     /** Adds food to a player. */
     giveFood(foodToGive: number): void;
+
+    /** Gives a player all of the items in the chest. */
+    giveItems(itemSToGive: Item[], amountToGive?: number): void;
+
+    /** Gives a player a random item or stack of items from the chest. */
+    giveRngItem(...itemsToPickFrom: Item[]): void;
 
     /** Adds saturation to a player. */
     giveSaturation(saturationToGive: number): void;
@@ -778,6 +823,9 @@ export interface PlayerActions {
     /** Opens a container's inventory. Also works with crafting tables. */
     openBlockInv(containerLocation: Location): void;
 
+    /** Opens a written book menu for a player. */
+    openBook(bookItem: Item): void;
+
     /** Opens a sign for a player. Also works with client-side signs. */
     openSign(signLocation: Location): void;
 
@@ -818,6 +866,9 @@ export interface PlayerActions {
     /** Plays a sequence of sounds to a player, with a delay between each sound. */
     playSoundSeqWith(options: PlaySoundSeqOptions, soundsToPlay: SoundInput[], soundDelayTicksDefault_60?: number, playbackLocation?: Location): void;
 
+    /** Disguises a player as another player. */
+    playerDisguise(playerNameToDisguiseAs: ComponentInput, displaySkin?: Item): void;
+
     /** Allows projectiles to hit the player. */
     projColl(): void;
 
@@ -842,8 +893,14 @@ export interface PlayerActions {
     /** Removes the given number of rows from the bottom of a player's current inventory menu. */
     removeInvRowWith(options: RemoveInvRowOptions, rowsToRemove?: number): void;
 
+    /** Removes items from a player. */
+    removeItems(...itemSToRemove: Item[]): void;
+
     /** Removes a score from the scoreboard. */
     removeScore(scoreName: ComponentInput): void;
+
+    /** Replaces items in a player's inventory with the given item. */
+    replaceItems(itemSToReplace: Item[], itemToReplaceWith: Item, amountOfItemsToReplace?: number): void;
 
     /** Send a resource pack to a player. */
     resourcePack(resourcePackUrl: string): void;
@@ -883,6 +940,12 @@ export interface PlayerActions {
 
     /** Sets the number format of a single line in the player's scoreboard. */
     scoreLineFormatWith(options: ScoreLineFormatOptions, scoreName: ComponentInput, contentOrStyle: ComponentInput): void;
+
+    /** Displays a custom advancement popup to a player. */
+    sendAdvancement(advancementName: ComponentInput, advancementIcon?: Item): void;
+
+    /** Displays a custom advancement popup to a player. */
+    sendAdvancementWith(options: SendAdvancementOptions, advancementName: ComponentInput, advancementIcon?: Item): void;
 
     /** Makes a player perform an animation. */
     sendAnimation(): void;
@@ -947,6 +1010,9 @@ export interface PlayerActions {
     /** Sets the location compasses point to for a player. */
     setCompass(newTarget: Location): void;
 
+    /** Sets the item on a player's cursor. */
+    setCursorItem(itemToSet: Item): void;
+
     /** Sets a player's ability to see their own disguise. It is recommended that it is almost always hidden. */
     setDisguiseVisible(): void;
 
@@ -964,6 +1030,12 @@ export interface PlayerActions {
 
     /** Sets if an entity is hidden to a target. */
     setEntityHiddenWith(options: SetEntityHiddenOptions, ...entityUuids: string[]): void;
+
+    /** Sets the item in one of the equipment slots (armor and held items) of a player. */
+    setEquipment(itemToSet?: Item): void;
+
+    /** Sets the item in one of the equipment slots (armor and held items) of a player. */
+    setEquipmentWith(options: SetEquipmentOptions, itemToSet?: Item): void;
 
     /** Sets a player's exhaustion level. */
     setExhaustion(exhaustionLevel_0_4: number): void;
@@ -1016,11 +1088,23 @@ export interface PlayerActions {
     /** Sets if a player is allowed to interact with their hand-crafting menu. */
     setHandCraftingWith(options: SetHandCraftingOptions): void;
 
+    /** Sets the item in a player's main hand or off hand. */
+    setHandItem(itemToSet?: Item): void;
+
+    /** Sets the item in a player's main hand or off hand. */
+    setHandItemWith(options: SetHandItemOptions, itemToSet?: Item): void;
+
     /** Sets a player's current health. */
     setHealth(health: number): void;
 
+    /** Sets items in a player's hotbar. */
+    setHotbar(...itemSToSet: Item[]): void;
+
     /** Renames a player's current inventory menu. */
     setInvName(...inventoryName: ComponentInput[]): void;
+
+    /** Sets items in a player's upper inventory. */
+    setInventory(...itemSToSet: Item[]): void;
 
     /** Sets whether a player's inventory is kept after death. */
     setInventoryKept(): void;
@@ -1031,11 +1115,25 @@ export interface PlayerActions {
     /** Sets the currently remaining ticks until a player can next be hurt. */
     setInvulTicks(ticks: number): void;
 
+    /**
+     * Applies a cooldown visual effect to an item type.
+     *
+     * @remarks
+     * DiamondFire native input index 2 (slot ID 2) is omitted because its public metadata is unavailable. DiamondFire's default behavior will be used.
+     */
+    setItemCooldown(itemTypeToAffect: Item, cooldownInTicks: number): void;
+
+    /** Changes a player's inventory according to the items in the parameter chest. */
+    setItems(...itemSToGive: Item[]): void;
+
     /** Sets a player's maximum health. */
     setMaxHealth(maximumHealth: number): void;
 
     /** Sets a player's maximum health. */
     setMaxHealthWith(options: SetMaxHealthOptions, maximumHealth: number): void;
+
+    /** Sets the item in a slot of a player's current inventory menu. */
+    setMenuItem(slot: number, itemToSet?: Item): void;
 
     /**
      * Sets the color a player's name tag appears in.
@@ -1107,8 +1205,14 @@ export interface PlayerActions {
     /** Sets whether the scoreboard sidebar is visible to a player. */
     setSidebarWith(options: SetSidebarOptions): void;
 
+    /** Sets the player's skin. */
+    setSkin(playerHead: Item): void;
+
     /** Sets a player's selected hotbar slot. */
     setSlot(newSlot: number): void;
+
+    /** Sets the item in a slot of a player's inventory. */
+    setSlotItem(itemToSet: Item | undefined, slotToSet: number): void;
 
     /** Sets the location a player will spawn when they die and respawn. */
     setSpawnPoint(theNewSpawnLocation: Location): void;
@@ -1151,6 +1255,9 @@ export interface PlayerActions {
 
     /** Shows the player's disguise on their screen. */
     showDisguise(): void;
+
+    /** Opens a custom inventory for a player. */
+    showInv(...itemsToDisplay: Item[]): void;
 
     /** Makes a player spectate another player or entity. */
     spectateTarget(targetUuid: string): void;
