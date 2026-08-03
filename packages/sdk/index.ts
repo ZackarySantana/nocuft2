@@ -1,5 +1,4 @@
 export * from "./plot";
 export * from "./players";
-export * from "./variables/plot";
-export * from "./variables/players";
-export * from "./variables/variables";
+export * from "./variables/index";
+export * from "./values/index";

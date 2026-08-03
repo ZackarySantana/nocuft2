@@ -7,7 +7,7 @@ import type {
 import {
     typescriptInputNames,
     typescriptTagNames,
-    typescriptTypeNames,
+    typescriptTypes,
 } from "../policy.js";
 import { camelCase, capitalize } from "../util/strings.js";
 
@@ -41,10 +41,11 @@ class UnsupportedTypeError extends Error {}
 
 function renderInput(input: OperationInput, isLast: boolean): string {
     const name = typescriptInputNames[input.id] ?? camelCase(input.id);
-    const type = typescriptTypeNames[input.type];
-    if (!type) {
+    const policy = typescriptTypes[input.type];
+    if (!policy) {
         throw new UnsupportedTypeError(`Unsupported input type: ${input.type}`);
     }
+    const type = policy.name;
 
     if (input.cardinality === "plural") {
         return isLast ? `...${name}: ${type}[]` : `${name}: ${type}[]`;
@@ -110,12 +111,41 @@ function renderOperation(operation: Operation): RenderedOperation {
     };
 }
 
+type TypeImports = Map<string, Set<string>>;
+
+function collectTypeImports(operation: Operation, imports: TypeImports): void {
+    for (const input of operation.inputs) {
+        const policy = typescriptTypes[input.type];
+
+        if (!policy?.importFrom) continue;
+
+        const names = imports.get(policy.importFrom) ?? new Set<string>();
+
+        names.add(policy.name);
+        imports.set(policy.importFrom, names);
+    }
+}
+
+function renderTypeImports(imports: TypeImports): string[] {
+    return [...imports.entries()]
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([path, names]) => {
+            const importedNames = [...names].sort().join(", ");
+
+            return (
+                `import type { ${importedNames} } ` +
+                `from ${JSON.stringify(path)};`
+            );
+        });
+}
+
 export function renderPlayerActions(
     operations: Operation[],
 ): RenderPlayerActionsResult {
     const rendered: RenderedOperation[] = [];
     const unsupported: UnsupportedOperation[] = [];
     const seenMethods = new Set<string>();
+    const imports: TypeImports = new Map();
 
     for (const operation of operations.toSorted((left, right) =>
         left.id.localeCompare(right.id),
@@ -128,7 +158,9 @@ export function renderPlayerActions(
         seenMethods.add(operation.method);
 
         try {
-            rendered.push(renderOperation(operation));
+            const renderedOperation = renderOperation(operation);
+            rendered.push(renderedOperation);
+            collectTypeImports(operation, imports);
         } catch (cause) {
             if (!(cause instanceof UnsupportedTypeError)) {
                 throw cause;
@@ -152,11 +184,14 @@ export function renderPlayerActions(
     const playerActionDefinitions = rendered
         .map((op) => op.methods)
         .join("\n\n");
+    const importLines = renderTypeImports(imports);
 
     return {
         source: [
             "// This file is generated. Do not edit manually.",
             "",
+            ...importLines,
+            ...(importLines.length > 0 ? [""] : []),
             "export type MessagePart = string | number | boolean;",
             "",
             `${topLevel}`,

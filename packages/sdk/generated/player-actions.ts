@@ -1,5 +1,7 @@
 // This file is generated. Do not edit manually.
 
+import type { Location } from "../values/location";
+
 export type MessagePart = string | number | boolean;
 
 export interface ActionBarOptions {
@@ -49,9 +51,38 @@ export interface DamageOptions {
     readonly ignoreFormatting?: boolean;
 }
 
+export interface DisplayBellRingOptions {
+    /** Default: "north" */
+    readonly ringDirection?: "north" | "south" | "west" | "east";
+}
+
+export interface DisplayBlockOpenOptions {
+    /** Default: "open" */
+    readonly containerState?: "open" | "closed";
+}
+
+export interface DisplayFractureOptions {
+    /** Default: true */
+    readonly overwritePreviousFracture?: boolean;
+}
+
+export interface DisplayGatewayOptions {
+    /** Default: "initialBeam" */
+    readonly animationType?: "initialBeam" | "periodicBeam";
+}
+
 export interface DisplayPickupOptions {
     /** Default: true */
     readonly ignoreFormatting?: boolean;
+}
+
+export interface DisplaySignTextOptions {
+    /** Default: "front" */
+    readonly signSide?: "front" | "back";
+    /** Default: "black" */
+    readonly textColor?: "white" | "orange" | "magenta" | "lightBlue" | "yellow" | "lime" | "pink" | "gray" | "lightGray" | "cyan" | "purple" | "blue" | "brown" | "green" | "red" | "black";
+    /** Default: "disable" */
+    readonly glowing?: "enable" | "disable";
 }
 
 export interface FallingAttributeOptions {
@@ -102,6 +133,13 @@ export interface LaunchFwdOptions {
     readonly launchAxis?: "pitchAndYaw" | "yawOnly";
 }
 
+export interface LaunchTowardOptions {
+    /** Default: true */
+    readonly addToCurrentVelocity?: boolean;
+    /** Default: false */
+    readonly ignoreDistance?: boolean;
+}
+
 export interface LaunchUpOptions {
     /** Default: true */
     readonly addToCurrentVelocity?: boolean;
@@ -145,6 +183,11 @@ export interface MovementAttributeOptions {
     readonly valueType?: "direct" | "percentageBase" | "percentageRelative";
 }
 
+export interface OpenSignOptions {
+    /** Default: "front" */
+    readonly signSide?: "front" | "back";
+}
+
 export interface OpenTradeMenuOptions {
     /** Default: true */
     readonly ignoreFormatting?: boolean;
@@ -170,6 +213,11 @@ export interface RemoveInvRowOptions {
 export interface RideEntityOptions {
     /** Default: true */
     readonly ignoreFormatting?: boolean;
+}
+
+export interface RngTeleportOptions {
+    /** Default: false */
+    readonly keepCurrentRotation?: boolean;
 }
 
 export interface ScoreDefFormatOptions {
@@ -336,6 +384,13 @@ export interface SpectatorCollisionOptions {
     readonly spectatorCollision?: "enable" | "disable";
 }
 
+export interface TeleportOptions {
+    /** Default: false */
+    readonly keepCurrentRotation?: boolean;
+    /** Default: false */
+    readonly keepVelocity?: boolean;
+}
+
 export interface PlayerActions {
     actionBar(...messages: MessagePart[]): void;
     actionBarWith(options: ActionBarOptions, ...messages: MessagePart[]): void;
@@ -353,6 +408,8 @@ export interface PlayerActions {
     chatStyle(newChatStyle: MessagePart): void;
 
     clearChat(): void;
+
+    clearDispBlock(blockLocationOrStartOfRegion: Location, endOfRegion?: Location): void;
 
     clearHighlighters(): void;
 
@@ -384,12 +441,35 @@ export interface PlayerActions {
 
     disguiseShiftVert(yOffset: number): void;
 
+    displayBellRing(blockLocation: Location): void;
+    displayBellRingWith(options: DisplayBellRingOptions, blockLocation: Location): void;
+
+    displayBlockOpen(blockLocation: Location): void;
+    displayBlockOpenWith(options: DisplayBlockOpenOptions, blockLocation: Location): void;
+
+    displayFracture(blockSToFracture: Location[], fractureLevel?: number): void;
+    displayFractureWith(options: DisplayFractureOptions, blockSToFracture: Location[], fractureLevel?: number): void;
+
+    displayGateway(gatewayLocation: Location): void;
+    displayGatewayWith(options: DisplayGatewayOptions, gatewayLocation: Location): void;
+
+    displayHighlighter(blockLocation: Location, colorHexadecimal?: string, name?: string, opacityInPercentage?: number, durationMilliseconds?: number): void;
+
+    displayHologram(displayLocation: Location, textToDisplay: MessagePart): void;
+
+    displayLightning(strikeLocation: Location): void;
+
     displayPickup(entityUuid: string, collectorUuid: string): void;
     displayPickupWith(options: DisplayPickupOptions, entityUuid: string, collectorUuid: string): void;
+
+    displaySignText(signLocation: Location, ...textLineS: MessagePart[]): void;
+    displaySignTextWith(options: DisplaySignTextOptions, signLocation: Location, ...textLineS: MessagePart[]): void;
 
     enableFlight(): void;
 
     enablePvp(): void;
+
+    faceLocation(locationToFace: Location): void;
 
     fallingAttribute(value?: number): void;
     fallingAttributeWith(options: FallingAttributeOptions, value?: number): void;
@@ -413,6 +493,8 @@ export interface PlayerActions {
 
     hideDisguise(): void;
 
+    hurtAnimation(damageSource?: Location): void;
+
     instantRespawn(): void;
     instantRespawnWith(options: InstantRespawnOptions): void;
 
@@ -428,6 +510,9 @@ export interface PlayerActions {
 
     launchFwd(launchPower: number): void;
     launchFwdWith(options: LaunchFwdOptions, launchPower: number): void;
+
+    launchToward(launchDestination: Location, launchPower?: number): void;
+    launchTowardWith(options: LaunchTowardOptions, launchDestination: Location, launchPower?: number): void;
 
     launchUp(launchPower: number): void;
     launchUpWith(options: LaunchUpOptions, launchPower: number): void;
@@ -462,6 +547,11 @@ export interface PlayerActions {
 
     noProjColl(): void;
 
+    openBlockInv(containerLocation: Location): void;
+
+    openSign(signLocation: Location): void;
+    openSignWith(options: OpenSignOptions, signLocation: Location): void;
+
     openTradeMenu(villagerUuid: string): void;
     openTradeMenuWith(options: OpenTradeMenuOptions, villagerUuid: string): void;
 
@@ -488,6 +578,9 @@ export interface PlayerActions {
     rideEntityWith(options: RideEntityOptions, targetUuid: string): void;
 
     rmWorldBorder(): void;
+
+    rngTeleport(...locationsToChooseFrom: Location[]): void;
+    rngTeleportWith(options: RngTeleportOptions, ...locationsToChooseFrom: Location[]): void;
 
     rollbackBlocks(rollbackTime?: number): void;
 
@@ -532,6 +625,8 @@ export interface PlayerActions {
 
     setCollidable(): void;
     setCollidableWith(options: SetCollidableOptions): void;
+
+    setCompass(newTarget: Location): void;
 
     setDisguiseVisible(): void;
     setDisguiseVisibleWith(options: SetDisguiseVisibleOptions): void;
@@ -614,6 +709,8 @@ export interface PlayerActions {
 
     setSlot(newSlot: number): void;
 
+    setSpawnPoint(theNewSpawnLocation: Location): void;
+
     setSpeed(movementSpeedPercentage_0To_1000: number): void;
     setSpeedWith(options: SetSpeedOptions, movementSpeedPercentage_0To_1000: number): void;
 
@@ -628,6 +725,8 @@ export interface PlayerActions {
 
     setVisualFire(): void;
     setVisualFireWith(options: SetVisualFireOptions): void;
+
+    setWorldBorder(centerPosition: Location, radiusInBlocks: number, warningDistance?: number): void;
 
     setXpprog(progress_0_100: number): void;
 
@@ -645,7 +744,14 @@ export interface PlayerActions {
 
     survivalMode(): void;
 
+    teleport(newPosition: Location): void;
+    teleportWith(options: TeleportOptions, newPosition: Location): void;
+
+    tpSequence(locationsToTeleportTo: Location[], teleportDelayTicksDefault_60?: number): void;
+
     undisguise(): void;
+
+    vibration(originLocation: Location, targetLocation: Location, arrivalTime?: number): void;
 
     wakeUpAnimation(): void;
 

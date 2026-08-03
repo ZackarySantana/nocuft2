@@ -42,16 +42,6 @@ export interface UnsupportedPlayerActions {
         "Unsupported input type: item"
     >;
     /**
-     * DiamondFire player_action/ClearDispBlock.
-     * Unsupported: unsupported_type.
-     * Unsupported input type: location
-     */
-    readonly clearDispBlock: UnsupportedAction<
-        "ClearDispBlock",
-        "unsupported_type",
-        "Unsupported input type: location"
-    >;
-    /**
      * DiamondFire player_action/ClearItems.
      * Unsupported: unsupported_type.
      * Unsupported input type: item
@@ -82,16 +72,6 @@ export interface UnsupportedPlayerActions {
         "DispHeadTexture: or-slot 1 variants have different public argument shapes"
     >;
     /**
-     * DiamondFire player_action/DisplayBellRing.
-     * Unsupported: unsupported_type.
-     * Unsupported input type: location
-     */
-    readonly displayBellRing: UnsupportedAction<
-        "DisplayBellRing",
-        "unsupported_type",
-        "Unsupported input type: location"
-    >;
-    /**
      * DiamondFire player_action/DisplayBlock.
      * Unsupported: unsupported_type.
      * Unsupported input type: block
@@ -102,16 +82,6 @@ export interface UnsupportedPlayerActions {
         "Unsupported input type: block"
     >;
     /**
-     * DiamondFire player_action/DisplayBlockOpen.
-     * Unsupported: unsupported_type.
-     * Unsupported input type: location
-     */
-    readonly displayBlockOpen: UnsupportedAction<
-        "DisplayBlockOpen",
-        "unsupported_type",
-        "Unsupported input type: location"
-    >;
-    /**
      * DiamondFire player_action/DisplayEquipment.
      * Unsupported: unsupported_shape.
      * DisplayEquipment: or-slot 1 variant 1 has 6 nested slots
@@ -120,66 +90,6 @@ export interface UnsupportedPlayerActions {
         "DisplayEquipment",
         "unsupported_shape",
         "DisplayEquipment: or-slot 1 variant 1 has 6 nested slots"
-    >;
-    /**
-     * DiamondFire player_action/DisplayFracture.
-     * Unsupported: unsupported_type.
-     * Unsupported input type: location
-     */
-    readonly displayFracture: UnsupportedAction<
-        "DisplayFracture",
-        "unsupported_type",
-        "Unsupported input type: location"
-    >;
-    /**
-     * DiamondFire player_action/DisplayGateway.
-     * Unsupported: unsupported_type.
-     * Unsupported input type: location
-     */
-    readonly displayGateway: UnsupportedAction<
-        "DisplayGateway",
-        "unsupported_type",
-        "Unsupported input type: location"
-    >;
-    /**
-     * DiamondFire player_action/DisplayHighlighter.
-     * Unsupported: unsupported_type.
-     * Unsupported input type: location
-     */
-    readonly displayHighlighter: UnsupportedAction<
-        "DisplayHighlighter",
-        "unsupported_type",
-        "Unsupported input type: location"
-    >;
-    /**
-     * DiamondFire player_action/DisplayHologram.
-     * Unsupported: unsupported_type.
-     * Unsupported input type: location
-     */
-    readonly displayHologram: UnsupportedAction<
-        "DisplayHologram",
-        "unsupported_type",
-        "Unsupported input type: location"
-    >;
-    /**
-     * DiamondFire player_action/DisplayLightning.
-     * Unsupported: unsupported_type.
-     * Unsupported input type: location
-     */
-    readonly displayLightning: UnsupportedAction<
-        "DisplayLightning",
-        "unsupported_type",
-        "Unsupported input type: location"
-    >;
-    /**
-     * DiamondFire player_action/DisplaySignText.
-     * Unsupported: unsupported_type.
-     * Unsupported input type: location
-     */
-    readonly displaySignText: UnsupportedAction<
-        "DisplaySignText",
-        "unsupported_type",
-        "Unsupported input type: location"
     >;
     /**
      * DiamondFire player_action/EnableBlocks.
@@ -200,16 +110,6 @@ export interface UnsupportedPlayerActions {
         "ExpandInv",
         "unsupported_type",
         "Unsupported input type: item"
-    >;
-    /**
-     * DiamondFire player_action/FaceLocation.
-     * Unsupported: unsupported_type.
-     * Unsupported input type: location
-     */
-    readonly faceLocation: UnsupportedAction<
-        "FaceLocation",
-        "unsupported_type",
-        "Unsupported input type: location"
     >;
     /**
      * DiamondFire player_action/GetItemCooldown.
@@ -262,16 +162,6 @@ export interface UnsupportedPlayerActions {
         "Unsupported input type: item"
     >;
     /**
-     * DiamondFire player_action/HurtAnimation.
-     * Unsupported: unsupported_type.
-     * Unsupported input type: location
-     */
-    readonly hurtAnimation: UnsupportedAction<
-        "HurtAnimation",
-        "unsupported_type",
-        "Unsupported input type: location"
-    >;
-    /**
      * DiamondFire player_action/LaunchProj.
      * Unsupported: unsupported_type.
      * Unsupported input type: projectile
@@ -280,16 +170,6 @@ export interface UnsupportedPlayerActions {
         "LaunchProj",
         "unsupported_type",
         "Unsupported input type: projectile"
-    >;
-    /**
-     * DiamondFire player_action/LaunchToward.
-     * Unsupported: unsupported_type.
-     * Unsupported input type: location
-     */
-    readonly launchToward: UnsupportedAction<
-        "LaunchToward",
-        "unsupported_type",
-        "Unsupported input type: location"
     >;
     /**
      * DiamondFire player_action/MobDisguise.
@@ -302,16 +182,6 @@ export interface UnsupportedPlayerActions {
         "Unsupported input type: spawn_egg"
     >;
     /**
-     * DiamondFire player_action/OpenBlockInv.
-     * Unsupported: unsupported_type.
-     * Unsupported input type: location
-     */
-    readonly openBlockInv: UnsupportedAction<
-        "OpenBlockInv",
-        "unsupported_type",
-        "Unsupported input type: location"
-    >;
-    /**
      * DiamondFire player_action/OpenBook.
      * Unsupported: unsupported_type.
      * Unsupported input type: item
@@ -320,16 +190,6 @@ export interface UnsupportedPlayerActions {
         "OpenBook",
         "unsupported_type",
         "Unsupported input type: item"
-    >;
-    /**
-     * DiamondFire player_action/OpenSign.
-     * Unsupported: unsupported_type.
-     * Unsupported input type: location
-     */
-    readonly openSign: UnsupportedAction<
-        "OpenSign",
-        "unsupported_type",
-        "Unsupported input type: location"
     >;
     /**
      * DiamondFire player_action/Particle.
@@ -532,16 +392,6 @@ export interface UnsupportedPlayerActions {
         "Unsupported input type: projectile"
     >;
     /**
-     * DiamondFire player_action/RngTeleport.
-     * Unsupported: unsupported_type.
-     * Unsupported input type: location
-     */
-    readonly rngTeleport: UnsupportedAction<
-        "RngTeleport",
-        "unsupported_type",
-        "Unsupported input type: location"
-    >;
-    /**
      * DiamondFire player_action/SendAdvancement.
      * Unsupported: unsupported_type.
      * Unsupported input type: item
@@ -560,16 +410,6 @@ export interface UnsupportedPlayerActions {
         "SetArmor",
         "unsupported_shape",
         "SetArmor: or-slot 0 variant 1 has 4 nested slots"
-    >;
-    /**
-     * DiamondFire player_action/SetCompass.
-     * Unsupported: unsupported_type.
-     * Unsupported input type: location
-     */
-    readonly setCompass: UnsupportedAction<
-        "SetCompass",
-        "unsupported_type",
-        "Unsupported input type: location"
     >;
     /**
      * DiamondFire player_action/SetCursorItem.
@@ -682,16 +522,6 @@ export interface UnsupportedPlayerActions {
         "Unsupported input type: item"
     >;
     /**
-     * DiamondFire player_action/SetSpawnPoint.
-     * Unsupported: unsupported_type.
-     * Unsupported input type: location
-     */
-    readonly setSpawnPoint: UnsupportedAction<
-        "SetSpawnPoint",
-        "unsupported_type",
-        "Unsupported input type: location"
-    >;
-    /**
      * DiamondFire player_action/SetVelocity.
      * Unsupported: unsupported_type.
      * Unsupported input type: vector
@@ -700,16 +530,6 @@ export interface UnsupportedPlayerActions {
         "SetVelocity",
         "unsupported_type",
         "Unsupported input type: vector"
-    >;
-    /**
-     * DiamondFire player_action/SetWorldBorder.
-     * Unsupported: unsupported_type.
-     * Unsupported input type: location
-     */
-    readonly setWorldBorder: UnsupportedAction<
-        "SetWorldBorder",
-        "unsupported_type",
-        "Unsupported input type: location"
     >;
     /**
      * DiamondFire player_action/ShowInv.
@@ -730,35 +550,5 @@ export interface UnsupportedPlayerActions {
         "StopSound",
         "unsupported_type",
         "Unsupported input type: sound"
-    >;
-    /**
-     * DiamondFire player_action/Teleport.
-     * Unsupported: unsupported_type.
-     * Unsupported input type: location
-     */
-    readonly teleport: UnsupportedAction<
-        "Teleport",
-        "unsupported_type",
-        "Unsupported input type: location"
-    >;
-    /**
-     * DiamondFire player_action/TpSequence.
-     * Unsupported: unsupported_type.
-     * Unsupported input type: location
-     */
-    readonly tpSequence: UnsupportedAction<
-        "TpSequence",
-        "unsupported_type",
-        "Unsupported input type: location"
-    >;
-    /**
-     * DiamondFire player_action/Vibration.
-     * Unsupported: unsupported_type.
-     * Unsupported input type: location
-     */
-    readonly vibration: UnsupportedAction<
-        "Vibration",
-        "unsupported_type",
-        "Unsupported input type: location"
     >;
 }

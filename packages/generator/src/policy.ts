@@ -1,7 +1,23 @@
-export const typescriptTypeNames: Readonly<Record<string, string>> = {
-    component: "MessagePart",
-    number: "number",
-    text: "string",
+// Defines custom values and where to import theme from.
+export interface TypeScriptTypePolicy {
+    name: string;
+    importFrom?: string;
+}
+
+export const typescriptTypes: Readonly<Record<string, TypeScriptTypePolicy>> = {
+    component: {
+        name: "MessagePart",
+    },
+    number: {
+        name: "number",
+    },
+    text: {
+        name: "string",
+    },
+    location: {
+        name: "Location",
+        importFrom: "../values/location",
+    },
 };
 
 export const typescriptInputNames: Readonly<Record<string, string>> = {
