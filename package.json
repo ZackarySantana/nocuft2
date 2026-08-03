@@ -1,0 +1,14 @@
+{
+    "name": "nocuft-workspace",
+    "private": true,
+    "workspaces": [
+        "packages/generator",
+        "packages/sdk",
+        "examples/arena"
+    ],
+    "scripts": {
+        "build:sdk": "npm run build --workspace=@nocuft/diamondfire",
+        "generate": "npm run generate --workspace=@nocuft/generator",
+        "check": "npm run typecheck --workspace=@nocuft/generator && npm test --workspace=@nocuft/generator && npm run generate && npm run build:sdk"
+    }
+}
