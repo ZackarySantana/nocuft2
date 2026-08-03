@@ -5,9 +5,6 @@ export interface TypeScriptTypePolicy {
 }
 
 export const typescriptTypes: Readonly<Record<string, TypeScriptTypePolicy>> = {
-    component: {
-        name: "MessagePart",
-    },
     number: {
         name: "number",
     },
@@ -16,7 +13,11 @@ export const typescriptTypes: Readonly<Record<string, TypeScriptTypePolicy>> = {
     },
     location: {
         name: "Location",
-        importFrom: "../values/location",
+        importFrom: "../values/index",
+    },
+    component: {
+        name: "ComponentInput",
+        importFrom: "../values/index",
     },
 };
 

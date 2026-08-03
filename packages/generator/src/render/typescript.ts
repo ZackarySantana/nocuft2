@@ -192,8 +192,6 @@ export function renderPlayerActions(
             "",
             ...importLines,
             ...(importLines.length > 0 ? [""] : []),
-            "export type MessagePart = string | number | boolean;",
-            "",
             `${topLevel}`,
             "",
             "export interface PlayerActions {",

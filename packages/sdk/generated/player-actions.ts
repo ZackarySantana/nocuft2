@@ -1,8 +1,6 @@
 // This file is generated. Do not edit manually.
 
-import type { Location } from "../values/location";
-
-export type MessagePart = string | number | boolean;
+import type { ComponentInput, Location } from "../values/index";
 
 export interface ActionBarOptions {
     /** Default: "noSpaces" */
@@ -392,8 +390,8 @@ export interface TeleportOptions {
 }
 
 export interface PlayerActions {
-    actionBar(...messages: MessagePart[]): void;
-    actionBarWith(options: ActionBarOptions, ...messages: MessagePart[]): void;
+    actionBar(...messages: ComponentInput[]): void;
+    actionBarWith(options: ActionBarOptions, ...messages: ComponentInput[]): void;
 
     adventureMode(): void;
 
@@ -405,7 +403,7 @@ export interface PlayerActions {
     bossBar(title?: string, health?: number, maximumHealth?: number): void;
     bossBarWith(options: BossBarOptions, title?: string, health?: number, maximumHealth?: number): void;
 
-    chatStyle(newChatStyle: MessagePart): void;
+    chatStyle(newChatStyle: ComponentInput): void;
 
     clearChat(): void;
 
@@ -455,15 +453,15 @@ export interface PlayerActions {
 
     displayHighlighter(blockLocation: Location, colorHexadecimal?: string, name?: string, opacityInPercentage?: number, durationMilliseconds?: number): void;
 
-    displayHologram(displayLocation: Location, textToDisplay: MessagePart): void;
+    displayHologram(displayLocation: Location, textToDisplay: ComponentInput): void;
 
     displayLightning(strikeLocation: Location): void;
 
     displayPickup(entityUuid: string, collectorUuid: string): void;
     displayPickupWith(options: DisplayPickupOptions, entityUuid: string, collectorUuid: string): void;
 
-    displaySignText(signLocation: Location, ...textLineS: MessagePart[]): void;
-    displaySignTextWith(options: DisplaySignTextOptions, signLocation: Location, ...textLineS: MessagePart[]): void;
+    displaySignText(signLocation: Location, ...textLineS: ComponentInput[]): void;
+    displaySignTextWith(options: DisplaySignTextOptions, signLocation: Location, ...textLineS: ComponentInput[]): void;
 
     enableFlight(): void;
 
@@ -568,7 +566,7 @@ export interface PlayerActions {
     removeInvRow(rowsToRemove?: number): void;
     removeInvRowWith(options: RemoveInvRowOptions, rowsToRemove?: number): void;
 
-    removeScore(scoreName: MessagePart): void;
+    removeScore(scoreName: ComponentInput): void;
 
     resourcePack(resourcePackUrl: string): void;
 
@@ -586,24 +584,24 @@ export interface PlayerActions {
 
     saveInv(): void;
 
-    scoreDefFormat(contentOrStyle: MessagePart): void;
-    scoreDefFormatWith(options: ScoreDefFormatOptions, contentOrStyle: MessagePart): void;
+    scoreDefFormat(contentOrStyle: ComponentInput): void;
+    scoreDefFormatWith(options: ScoreDefFormatOptions, contentOrStyle: ComponentInput): void;
 
-    scoreLineFormat(scoreName: MessagePart, contentOrStyle: MessagePart): void;
-    scoreLineFormatWith(options: ScoreLineFormatOptions, scoreName: MessagePart, contentOrStyle: MessagePart): void;
+    scoreLineFormat(scoreName: ComponentInput, contentOrStyle: ComponentInput): void;
+    scoreLineFormatWith(options: ScoreLineFormatOptions, scoreName: ComponentInput, contentOrStyle: ComponentInput): void;
 
     sendAnimation(): void;
     sendAnimationWith(options: SendAnimationOptions): void;
 
     sendHover(messageToSendInChat: string, messageToSeeOnHover: string): void;
 
-    sendMessage(...messages: MessagePart[]): void;
-    sendMessageWith(options: SendMessageOptions, ...messages: MessagePart[]): void;
+    sendMessage(...messages: ComponentInput[]): void;
+    sendMessageWith(options: SendMessageOptions, ...messages: ComponentInput[]): void;
 
-    sendMessageSeq(messagesToSend: MessagePart[], messageDelayTicks?: number): void;
-    sendMessageSeqWith(options: SendMessageSeqOptions, messagesToSend: MessagePart[], messageDelayTicks?: number): void;
+    sendMessageSeq(messagesToSend: ComponentInput[], messageDelayTicks?: number): void;
+    sendMessageSeqWith(options: SendMessageSeqOptions, messagesToSend: ComponentInput[], messageDelayTicks?: number): void;
 
-    sendTitle(titleText: MessagePart, subtitleText?: MessagePart, titleDuration?: number, fadeInLength?: number, fadeOutLength?: number): void;
+    sendTitle(titleText: ComponentInput, subtitleText?: ComponentInput, titleDuration?: number, fadeInLength?: number, fadeOutLength?: number): void;
 
     sendToPlot(plotHandleOrId: string): void;
 
@@ -621,7 +619,7 @@ export interface PlayerActions {
 
     setAtkSpeed(attackSpeed?: number): void;
 
-    setChatTag(...chatTag: MessagePart[]): void;
+    setChatTag(...chatTag: ComponentInput[]): void;
 
     setCollidable(): void;
     setCollidableWith(options: SetCollidableOptions): void;
@@ -667,7 +665,7 @@ export interface PlayerActions {
 
     setHealth(health: number): void;
 
-    setInvName(...inventoryName: MessagePart[]): void;
+    setInvName(...inventoryName: ComponentInput[]): void;
 
     setInventoryKept(): void;
     setInventoryKeptWith(options: SetInventoryKeptOptions): void;
@@ -677,8 +675,8 @@ export interface PlayerActions {
     setMaxHealth(maximumHealth: number): void;
     setMaxHealthWith(options: SetMaxHealthOptions, maximumHealth: number): void;
 
-    setNamePrefix(...prefixSuffixText: MessagePart[]): void;
-    setNamePrefixWith(options: SetNamePrefixOptions, ...prefixSuffixText: MessagePart[]): void;
+    setNamePrefix(...prefixSuffixText: ComponentInput[]): void;
+    setNamePrefixWith(options: SetNamePrefixOptions, ...prefixSuffixText: ComponentInput[]): void;
 
     setNameVisible(): void;
     setNameVisibleWith(options: SetNameVisibleOptions): void;
@@ -697,9 +695,9 @@ export interface PlayerActions {
 
     setSaturation(saturationLevel_1_20: number): void;
 
-    setScore(scoreName: MessagePart, scoreValue?: number): void;
+    setScore(scoreName: ComponentInput, scoreValue?: number): void;
 
-    setScoreObj(objectiveName: MessagePart): void;
+    setScoreObj(objectiveName: ComponentInput): void;
 
     setShoulder(): void;
     setShoulderWith(options: SetShoulderOptions): void;
@@ -714,12 +712,12 @@ export interface PlayerActions {
     setSpeed(movementSpeedPercentage_0To_1000: number): void;
     setSpeedWith(options: SetSpeedOptions, movementSpeedPercentage_0To_1000: number): void;
 
-    setStatus(gameStatus: MessagePart): void;
+    setStatus(gameStatus: ComponentInput): void;
 
     setStingsStuck(stingCount?: number): void;
 
-    setTabListInfo(...headerFooterText: MessagePart[]): void;
-    setTabListInfoWith(options: SetTabListInfoOptions, ...headerFooterText: MessagePart[]): void;
+    setTabListInfo(...headerFooterText: ComponentInput[]): void;
+    setTabListInfoWith(options: SetTabListInfoOptions, ...headerFooterText: ComponentInput[]): void;
 
     setTickRate(ticksPerSecond_0_20?: number): void;
 
