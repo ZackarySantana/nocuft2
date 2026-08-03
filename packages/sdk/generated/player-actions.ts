@@ -575,7 +575,7 @@ export interface PlayerActions {
     clearInvWith(options: ClearInvOptions): void;
 
     /** Removes all of an item from a player. */
-    clearItems(...itemSToClear: Item[]): void;
+    clearItems(...itemsToClear: Item[]): void;
 
     /** Removes all active potion effects from a player. */
     clearPotions(): void;
@@ -632,10 +632,10 @@ export interface PlayerActions {
     displayBlockOpenWith(options: DisplayBlockOpenOptions, blockLocation: Location): void;
 
     /** Displays a block fracture effect at a location to a player. */
-    displayFracture(blockSToFracture: Location[], fractureLevel?: number): void;
+    displayFracture(blocksToFracture: Location[], fractureLevel?: number): void;
 
     /** Displays a block fracture effect at a location to a player. */
-    displayFractureWith(options: DisplayFractureOptions, blockSToFracture: Location[], fractureLevel?: number): void;
+    displayFractureWith(options: DisplayFractureOptions, blocksToFracture: Location[], fractureLevel?: number): void;
 
     /** Displays a vertical beam on an end gateway to a player. */
     displayGateway(gatewayLocation: Location): void;
@@ -659,10 +659,10 @@ export interface PlayerActions {
     displayPickupWith(options: DisplayPickupOptions, entityUuid: string, collectorUuid: string): void;
 
     /** Displays text on a sign to a player. */
-    displaySignText(signLocation: Location, ...textLineS: ComponentInput[]): void;
+    displaySignText(signLocation: Location, ...textLines: ComponentInput[]): void;
 
     /** Displays text on a sign to a player. */
-    displaySignTextWith(options: DisplaySignTextOptions, signLocation: Location, ...textLineS: ComponentInput[]): void;
+    displaySignTextWith(options: DisplaySignTextOptions, signLocation: Location, ...textLines: ComponentInput[]): void;
 
     /** Allows the player to fly. */
     enableFlight(): void;
@@ -701,7 +701,7 @@ export interface PlayerActions {
     giveFood(foodToGive: number): void;
 
     /** Gives a player all of the items in the chest. */
-    giveItems(itemSToGive: Item[], amountToGive?: number): void;
+    giveItems(itemsToGive: Item[], amountToGive?: number): void;
 
     /** Gives a player a random item or stack of items from the chest. */
     giveRngItem(...itemsToPickFrom: Item[]): void;
@@ -894,13 +894,13 @@ export interface PlayerActions {
     removeInvRowWith(options: RemoveInvRowOptions, rowsToRemove?: number): void;
 
     /** Removes items from a player. */
-    removeItems(...itemSToRemove: Item[]): void;
+    removeItems(...itemsToRemove: Item[]): void;
 
     /** Removes a score from the scoreboard. */
     removeScore(scoreName: ComponentInput): void;
 
     /** Replaces items in a player's inventory with the given item. */
-    replaceItems(itemSToReplace: Item[], itemToReplaceWith: Item, amountOfItemsToReplace?: number): void;
+    replaceItems(itemsToReplace: Item[], itemToReplaceWith: Item, amountOfItemsToReplace?: number): void;
 
     /** Send a resource pack to a player. */
     resourcePack(resourcePackUrl: string): void;
@@ -1098,13 +1098,13 @@ export interface PlayerActions {
     setHealth(health: number): void;
 
     /** Sets items in a player's hotbar. */
-    setHotbar(...itemSToSet: Item[]): void;
+    setHotbar(...itemsToSet: Item[]): void;
 
     /** Renames a player's current inventory menu. */
     setInvName(...inventoryName: ComponentInput[]): void;
 
     /** Sets items in a player's upper inventory. */
-    setInventory(...itemSToSet: Item[]): void;
+    setInventory(...itemsToSet: Item[]): void;
 
     /** Sets whether a player's inventory is kept after death. */
     setInventoryKept(): void;
@@ -1124,7 +1124,7 @@ export interface PlayerActions {
     setItemCooldown(itemTypeToAffect: Item, cooldownInTicks: number): void;
 
     /** Changes a player's inventory according to the items in the parameter chest. */
-    setItems(...itemSToGive: Item[]): void;
+    setItems(...itemsToGive: Item[]): void;
 
     /** Sets a player's maximum health. */
     setMaxHealth(maximumHealth: number): void;

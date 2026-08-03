@@ -10,6 +10,7 @@ import {
 import type { NormalizationResult, Operation } from "../src/model.js";
 import { renderPlayerActions } from "../src/render/typescript.js";
 import { renderSounds } from "../src/render/values.js";
+import { camelCase, normalizeName } from "../src/util/strings.js";
 
 const source = await readFile(
     new URL("../src/actiondump.json", import.meta.url),
@@ -32,6 +33,11 @@ function requireOperation(result: NormalizationResult): Operation {
     assert.equal(result.kind, "operation");
     return result.operation;
 }
+
+test("normalizes parenthesized plural markers", () => {
+    assert.equal(normalizeName("Item(s) to give"), "items_to_give");
+    assert.equal(camelCase("Item(s) to give"), "itemsToGive");
+});
 
 test("normalizes SendMessage tags and plural input", () => {
     const operation = requireOperation(
