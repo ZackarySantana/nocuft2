@@ -1,5 +1,5 @@
 {
-    "name": "@nocuft/example-arena",
+    "name": "@nocuft/example-hello",
     "private": true,
     "type": "module",
     "dependencies": {
