@@ -1,5 +1,5 @@
 // This is psydo code and should not be used as documentation.
-import { plot, players } from "@nocuft/diamondfire";
+import { plot, players, location } from "@nocuft/diamondfire";
 
 const lobby = location(0, 65, 0);
 const arena = location(48, 65, 0);
@@ -34,6 +34,7 @@ function startGame(): void {
 
     phase.set("arena"); // or phase = "arena"; because of typescript's type system.
     alive.set(queuedAmount.get() - 1); // Can we even do this? queued will be a type. We need to lower this to a temp variable assignment at the dfir-high level? Maybe a new method.
+    players.all().where(queued, true).teleport(arena);
 
     let player = players.all().where(queued, true).one();
     player.set(bearer, true);
@@ -61,6 +62,7 @@ function endGame(): string {
     // phase = "ended";
     phase.set("ended");
     players.all().set(queued, false);
+    players.all().teleport(lobby);
 
     let player = players.all().where(bearer, true).one();
 
