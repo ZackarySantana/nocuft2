@@ -15,8 +15,9 @@ export interface Player extends PlayerSelection {
     uuid(): string;
 }
 
-export interface Players extends PlayerVariables {
+export interface Players {
     readonly unsupported: UnsupportedPlayerActions;
+    readonly var: PlayerVariables;
 
     all(): PlayerSelection;
 }

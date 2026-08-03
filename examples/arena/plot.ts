@@ -4,13 +4,13 @@ import { plot, players, location } from "@nocuft/diamondfire";
 const lobby = location(0, 65, 0);
 const arena = location(48, 65, 0);
 
-let phase = plot.game.enum("lobby", "arena", "ended");
-let alive = plot.game.number("alive");
-let bearer = players.game.boolean("bearer");
-let spectating = players.game.boolean("spectating");
+let phase = plot.var.game.enum("lobby", "arena", "ended");
+let alive = plot.var.game.number("alive");
+let bearer = players.var.game.boolean("bearer");
+let spectating = players.var.game.boolean("spectating");
 
-let queuedAmount = plot.game.number("queuedAmount");
-let queued = players.game.boolean("queued");
+let queuedAmount = plot.var.game.number("queuedAmount");
+let queued = players.var.game.boolean("queued");
 
 function broadcast(message: string): void {
     players.all().sendMessage(message);
