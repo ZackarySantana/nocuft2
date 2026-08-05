@@ -5,6 +5,10 @@ export interface TypeScriptTypePolicy {
 }
 
 export const typescriptTypes: Readonly<Record<string, TypeScriptTypePolicy>> = {
+    any: {
+        name: "AnyValueInput",
+        importFrom: "../values/index",
+    },
     number: {
         name: "number",
     },

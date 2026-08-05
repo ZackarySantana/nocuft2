@@ -2,10 +2,14 @@
     "name": "@nocuft/example-hello",
     "private": true,
     "type": "module",
+    "scripts": {
+        "compile": "nocuft compile plot.ts"
+    },
     "dependencies": {
-        "@nocuft/diamondfire": "latest"
+        "@nocuft/diamondfire": "0.1.0"
     },
     "devDependencies": {
+        "@nocuft/cli": "0.1.0",
         "typescript": "latest"
     }
 }

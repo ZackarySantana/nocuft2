@@ -12,66 +12,6 @@ export interface UnsupportedAction<
 
 export interface UnsupportedPlayerActions {
     /**
-     * DiamondFire player_action/BlockDisguise.
-     * Unsupported: unsupported_type.
-     * Unsupported input type: block
-     */
-    readonly blockDisguise: UnsupportedAction<
-        "BlockDisguise",
-        "unsupported_type",
-        "Unsupported input type: block"
-    >;
-    /**
-     * DiamondFire player_action/DisableBlocks.
-     * Unsupported: unsupported_type.
-     * Unsupported input type: block
-     */
-    readonly disableBlocks: UnsupportedAction<
-        "DisableBlocks",
-        "unsupported_type",
-        "Unsupported input type: block"
-    >;
-    /**
-     * DiamondFire player_action/DispHeadTexture.
-     * Unsupported: unsupported_shape.
-     * DispHeadTexture: or-slot 1 variants have different public argument shapes
-     */
-    readonly dispHeadTexture: UnsupportedAction<
-        "DispHeadTexture",
-        "unsupported_shape",
-        "DispHeadTexture: or-slot 1 variants have different public argument shapes"
-    >;
-    /**
-     * DiamondFire player_action/DisplayBlock.
-     * Unsupported: unsupported_type.
-     * Unsupported input type: block
-     */
-    readonly displayBlock: UnsupportedAction<
-        "DisplayBlock",
-        "unsupported_type",
-        "Unsupported input type: block"
-    >;
-    /**
-     * DiamondFire player_action/DisplayEquipment.
-     * Unsupported: unsupported_shape.
-     * DisplayEquipment: or-slot 1 variant 1 has 6 nested slots
-     */
-    readonly displayEquipment: UnsupportedAction<
-        "DisplayEquipment",
-        "unsupported_shape",
-        "DisplayEquipment: or-slot 1 variant 1 has 6 nested slots"
-    >;
-    /**
-     * DiamondFire player_action/EnableBlocks.
-     * Unsupported: unsupported_type.
-     * Unsupported input type: block
-     */
-    readonly enableBlocks: UnsupportedAction<
-        "EnableBlocks",
-        "unsupported_type",
-        "Unsupported input type: block"
-    >;
-    /**
      * DiamondFire player_action/GetItemCooldown.
      * Unsupported: unsupported_type.
      * Unsupported input type: variable
@@ -82,16 +22,6 @@ export interface UnsupportedPlayerActions {
         "Unsupported input type: variable"
     >;
     /**
-     * DiamondFire player_action/GetTargetEntity.
-     * Unsupported: missing_public_metadata.
-     * The action has placeholder slots and no public icon argument metadata.
-     */
-    readonly getTargetEntity: UnsupportedAction<
-        "GetTargetEntity",
-        "missing_public_metadata",
-        "The action has placeholder slots and no public icon argument metadata."
-    >;
-    /**
      * DiamondFire player_action/GivePotion.
      * Unsupported: unsupported_type.
      * Unsupported input type: potion
@@ -100,26 +30,6 @@ export interface UnsupportedPlayerActions {
         "GivePotion",
         "unsupported_type",
         "Unsupported input type: potion"
-    >;
-    /**
-     * DiamondFire player_action/LaunchProj.
-     * Unsupported: unsupported_type.
-     * Unsupported input type: projectile
-     */
-    readonly launchProj: UnsupportedAction<
-        "LaunchProj",
-        "unsupported_type",
-        "Unsupported input type: projectile"
-    >;
-    /**
-     * DiamondFire player_action/MobDisguise.
-     * Unsupported: unsupported_type.
-     * Unsupported input type: spawn_egg
-     */
-    readonly mobDisguise: UnsupportedAction<
-        "MobDisguise",
-        "unsupported_type",
-        "Unsupported input type: spawn_egg"
     >;
     /**
      * DiamondFire player_action/Particle.
@@ -168,16 +78,6 @@ export interface UnsupportedPlayerActions {
      */
     readonly particleCuboidA: UnsupportedAction<
         "ParticleCuboidA",
-        "unsupported_type",
-        "Unsupported input type: particle"
-    >;
-    /**
-     * DiamondFire player_action/ParticleEffect.
-     * Unsupported: unsupported_type.
-     * Unsupported input type: particle
-     */
-    readonly particleEffect: UnsupportedAction<
-        "ParticleEffect",
         "unsupported_type",
         "Unsupported input type: particle"
     >;
@@ -250,26 +150,6 @@ export interface UnsupportedPlayerActions {
         "RemovePotion",
         "unsupported_type",
         "Unsupported input type: potion"
-    >;
-    /**
-     * DiamondFire player_action/ReplaceProj.
-     * Unsupported: unsupported_type.
-     * Unsupported input type: projectile
-     */
-    readonly replaceProj: UnsupportedAction<
-        "ReplaceProj",
-        "unsupported_type",
-        "Unsupported input type: projectile"
-    >;
-    /**
-     * DiamondFire player_action/SetArmor.
-     * Unsupported: unsupported_shape.
-     * SetArmor: or-slot 0 variant 1 has 4 nested slots
-     */
-    readonly setArmor: UnsupportedAction<
-        "SetArmor",
-        "unsupported_shape",
-        "SetArmor: or-slot 0 variant 1 has 4 nested slots"
     >;
     /**
      * DiamondFire player_action/SetVelocity.

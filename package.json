@@ -4,11 +4,22 @@
     "workspaces": [
         "packages/generator",
         "packages/sdk",
+        "packages/dfir",
+        "packages/compiler",
+        "packages/frontends/typescript",
+        "packages/cli",
+        "examples/hello",
         "examples/arena"
     ],
     "scripts": {
         "build:sdk": "npm run build --workspace=@nocuft/diamondfire",
+        "build:dfir": "npm run build --workspace=@nocuft/dfir",
+        "build:compiler": "npm run build --workspace=@nocuft/compiler",
+        "build:frontend-typescript": "npm run build --workspace=@nocuft/frontend-typescript",
+        "build:cli": "npm run build --workspace=@nocuft/cli",
+        "build": "npm run build:sdk && npm run build:dfir && npm run build:compiler && npm run build:frontend-typescript && npm run build:cli",
         "generate": "npm run generate --workspace=@nocuft/generator",
-        "check": "npm run typecheck --workspace=@nocuft/generator && npm test --workspace=@nocuft/generator && npm run generate && npm run build:sdk"
+        "compile:hello": "npm run generate && npm run build && npm run compile --workspace=@nocuft/example-hello",
+        "check": "npm run typecheck --workspace=@nocuft/generator && npm test --workspace=@nocuft/generator && npm run generate && npm run build && npm test --workspace=@nocuft/frontend-typescript && npm test --workspace=@nocuft/compiler"
     }
 }

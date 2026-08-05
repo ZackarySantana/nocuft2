@@ -1,0 +1,20 @@
+{
+    "name": "@nocuft/cli",
+    "version": "0.1.0",
+    "private": true,
+    "type": "module",
+    "bin": {
+        "nocuft": "./dist/main.js"
+    },
+    "scripts": {
+        "build": "tsc && chmod +x dist/main.js"
+    },
+    "dependencies": {
+        "@nocuft/compiler": "0.1.0",
+        "@nocuft/frontend-typescript": "0.1.0"
+    },
+    "devDependencies": {
+        "@types/node": "latest",
+        "typescript": "latest"
+    }
+}

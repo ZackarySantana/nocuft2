@@ -10,16 +10,7 @@ export interface Operation {
     };
 
     inputs: OperationInput[];
-    omittedInputs: OmittedInput[];
     tags: OperationTag[];
-}
-
-export interface OmittedInput {
-    native: {
-        slotId: number;
-        index: number;
-    };
-    reason: "missing_public_metadata";
 }
 
 export type UnsupportedReason =
@@ -51,18 +42,10 @@ export type NormalizationResult =
 
 interface OperationInputBase {
     id: string;
-    type: string;
+    acceptedTypes: string[];
     native: {
-        encodings: NativeInputEncoding[];
+        index: number;
     };
-}
-
-export interface NativeInputEncoding {
-    slotId: number;
-    index: number;
-    layout: "single" | "plural" | "static";
-    orSlotId?: number;
-    variantIndex?: number;
 }
 
 export interface OperationSingleInput extends OperationInputBase {
@@ -73,7 +56,6 @@ export interface OperationSingleInput extends OperationInputBase {
 export interface OperationPluralInput extends OperationInputBase {
     cardinality: "plural";
     minimumLength: number;
-    listShortcut: boolean;
 }
 
 export type OperationInput = OperationSingleInput | OperationPluralInput;
@@ -82,6 +64,11 @@ export interface OperationTag {
     id: string;
     defaultOption: string;
     options: string[];
+    native: {
+        name: string;
+        slot: number;
+        options: Record<string, string>;
+    };
 }
 
 export interface SoundDefinition {

@@ -1,5 +1,6 @@
-import { readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import {
+    isCurrentPlayerAction,
     normalizePlayerAction,
     normalizeSounds,
     type RawActionDump,
@@ -8,6 +9,10 @@ import {
     renderPlayerActions,
     renderUnsupportedActions,
 } from "./render/typescript.js";
+import {
+    renderCompilerSounds,
+    renderPlayerOperations,
+} from "./render/compiler.js";
 import { renderSounds } from "./render/values.js";
 
 const actionDumpURL = new URL("./actiondump.json", import.meta.url);
@@ -21,12 +26,7 @@ if (!Array.isArray(parsed.actions)) {
 if (!Array.isArray(parsed.sounds)) {
     throw new Error("sounds is not an array");
 }
-const playerActions = parsed.actions.filter(
-    (action) =>
-        action.codeblockName === "PLAYER ACTION" &&
-        action.name === action.name.trim() &&
-        action.subAction === action.subAction.trim(),
-);
+const playerActions = parsed.actions.filter(isCurrentPlayerAction);
 
 if (playerActions.length === 0) {
     throw new Error("No PLAYER ACTION entries found");
@@ -51,11 +51,11 @@ const rendererUnsupportedIds = new Set(
 const supportedOperations = operations.filter(
     (operation) => !rendererUnsupportedIds.has(operation.id),
 );
-const partiallySupportedOperations = supportedOperations.filter(
-    (operation) => operation.omittedInputs.length > 0,
-);
 const unsupportedOutput = renderUnsupportedActions(allUnsupportedOperations);
-const soundsOutput = renderSounds(normalizeSounds(parsed.sounds));
+const sounds = normalizeSounds(parsed.sounds);
+const soundsOutput = renderSounds(sounds);
+const playerOperationsOutput = renderPlayerOperations(supportedOperations);
+const compilerSoundsOutput = renderCompilerSounds(sounds);
 const outputUrl = new URL(
     "../../sdk/generated/player-actions.ts",
     import.meta.url,
@@ -68,17 +68,39 @@ const soundsOutputUrl = new URL(
     "../../sdk/generated/sounds.ts",
     import.meta.url,
 );
+const playerIntrinsicsOutputUrl = new URL(
+    "../../frontends/typescript/generated/player-intrinsics.ts",
+    import.meta.url,
+);
+const playerOperationsOutputUrl = new URL(
+    "../../compiler/generated/player-operations.ts",
+    import.meta.url,
+);
+const compilerSoundsOutputUrl = new URL(
+    "../../compiler/generated/sounds.ts",
+    import.meta.url,
+);
+
+await mkdir(new URL("./", playerIntrinsicsOutputUrl), { recursive: true });
+await mkdir(new URL("./", playerOperationsOutputUrl), { recursive: true });
+await mkdir(new URL("./", compilerSoundsOutputUrl), { recursive: true });
 
 await Promise.all([
     writeFile(outputUrl, renderedPlayerActions.source, "utf8"),
     writeFile(unsupportedOutputUrl, unsupportedOutput, "utf8"),
     writeFile(soundsOutputUrl, soundsOutput, "utf8"),
+    writeFile(
+        playerIntrinsicsOutputUrl,
+        renderedPlayerActions.intrinsicSource,
+        "utf8",
+    ),
+    writeFile(playerOperationsOutputUrl, playerOperationsOutput, "utf8"),
+    writeFile(compilerSoundsOutputUrl, compilerSoundsOutput, "utf8"),
 ]);
 
 console.log(
     [
         `Generated ${supportedOperations.length} player actions`,
-        `(${partiallySupportedOperations.length} partial)`,
         `and documented ${allUnsupportedOperations.length} unsupported actions.`,
     ].join(" "),
 );

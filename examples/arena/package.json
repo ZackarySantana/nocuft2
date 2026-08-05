@@ -3,7 +3,7 @@
     "private": true,
     "type": "module",
     "dependencies": {
-        "@nocuft/diamondfire": "latest"
+        "@nocuft/diamondfire": "0.1.0"
     },
     "devDependencies": {
         "typescript": "latest"

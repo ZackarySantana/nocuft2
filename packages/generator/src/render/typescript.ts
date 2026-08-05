@@ -58,20 +58,41 @@ function renderInput(
     hasRequiredAfter: boolean,
 ): string {
     const name = typescriptInputNames[input.id] ?? camelCase(input.id);
-    const policy = typescriptTypes[input.type];
-    if (!policy) {
-        throw new UnsupportedTypeError(`Unsupported input type: ${input.type}`);
+    const names = input.acceptedTypes.map((type) => {
+        const policy = typescriptTypes[type];
+        if (!policy) {
+            throw new UnsupportedTypeError(`Unsupported input type: ${type}`);
+        }
+        return policy.name;
+    });
+    const uniqueNames = [...new Set(names)];
+    if (uniqueNames.length === 0) {
+        throw new UnsupportedTypeError(`Input ${input.id} has no types`);
     }
-    const type = policy.name;
+    const type = uniqueNames.join(" | ");
+    const elementType = uniqueNames.length > 1 ? `(${type})` : type;
 
     if (input.cardinality === "plural") {
+        const required = Array.from(
+            { length: input.minimumLength },
+            () => type,
+        );
+        const pluralType =
+            required.length === 0
+                ? `${elementType}[]`
+                : `[${[...required, `...${elementType}[]`].join(", ")}]`;
+
         if (isLast) {
-            return `...${name}: ${type}[]`;
+            return `...${name}: ${pluralType}`;
         }
 
-        return input.minimumLength === 0 && hasRequiredAfter
-            ? `${name}: ${type}[] | undefined`
-            : `${name}: ${type}[]`;
+        if (input.minimumLength > 0) {
+            return `${name}: ${pluralType}`;
+        }
+
+        return hasRequiredAfter
+            ? `${name}: ${pluralType} | undefined`
+            : `${name}?: ${pluralType}`;
     }
 
     if (!input.optional) {
@@ -86,6 +107,30 @@ function renderInput(
 interface RenderedOperation {
     topLevel: string;
     methods: string;
+    bindings: Record<string, TypeScriptIntrinsicBinding>;
+}
+
+interface TypeScriptParameterBinding {
+    sourceIndex: number;
+    input: string;
+    types: string[];
+    kind: "value" | "array" | "rest";
+    optional: boolean;
+    minimumLength: number;
+}
+
+interface TypeScriptOptionBinding {
+    tag: string;
+    kind: "boolean" | "string";
+    values: Record<string, string>;
+}
+
+interface TypeScriptIntrinsicBinding {
+    operation: string;
+    receiver: "player";
+    parameters: TypeScriptParameterBinding[];
+    optionsIndex?: number;
+    optionTags?: Record<string, TypeScriptOptionBinding>;
 }
 
 function renderOperationDocumentation(
@@ -93,37 +138,77 @@ function renderOperationDocumentation(
     summary = operation.description,
     indentation = "    ",
 ): string {
-    if (!summary && operation.omittedInputs.length === 0) {
+    if (!summary) {
         return "";
     }
 
     const safeSummary = summary.replaceAll("*/", "*\\/");
-
-    if (operation.omittedInputs.length === 0) {
-        return `${indentation}/** ${safeSummary} */`;
-    }
-
-    const remarks = operation.omittedInputs.map(
-        (input) =>
-            `${indentation} * DiamondFire native input index ${input.native.index} ` +
-            `(slot ID ${input.native.slotId}) is omitted because its public ` +
-            "metadata is unavailable. DiamondFire's default behavior will be used.",
-    );
-
-    return [
-        `${indentation}/**`,
-        ...(safeSummary
-            ? [`${indentation} * ${safeSummary}`, `${indentation} *`]
-            : []),
-        `${indentation} * @remarks`,
-        ...remarks,
-        `${indentation} */`,
-    ].join("\n");
+    return `${indentation}/** ${safeSummary} */`;
 }
 
 export interface RenderPlayerActionsResult {
     source: string;
+    intrinsicSource: string;
     unsupported: UnsupportedOperation[];
+}
+
+function createIntrinsicBinding(
+    operation: Operation,
+    configured: boolean,
+): TypeScriptIntrinsicBinding {
+    const sourceOffset = configured ? 1 : 0;
+    const parameters = operation.inputs.map((input, index) => ({
+        sourceIndex: index + sourceOffset,
+        input: input.id,
+        types: input.acceptedTypes,
+        kind:
+            input.cardinality === "plural" &&
+            index === operation.inputs.length - 1
+                ? ("rest" as const)
+                : input.cardinality === "plural"
+                  ? ("array" as const)
+                  : ("value" as const),
+        optional: isOptionalInput(input),
+        minimumLength:
+            input.cardinality === "plural" ? input.minimumLength : 1,
+    }));
+
+    if (!configured) {
+        return {
+            operation: operation.id,
+            receiver: operation.receiver,
+            parameters,
+        };
+    }
+
+    return {
+        operation: operation.id,
+        receiver: operation.receiver,
+        optionsIndex: 0,
+        parameters,
+        optionTags: Object.fromEntries(
+            operation.tags.map((tag) => {
+                const isBoolean =
+                    tag.options.length === 2 &&
+                    tag.options.includes("true") &&
+                    tag.options.includes("false");
+
+                return [
+                    typescriptTagNames[tag.id] ?? camelCase(tag.id),
+                    {
+                        tag: tag.id,
+                        kind: isBoolean ? "boolean" : "string",
+                        values: Object.fromEntries(
+                            tag.options.map((option) => [
+                                isBoolean ? option : camelCase(option),
+                                option,
+                            ]),
+                        ),
+                    },
+                ];
+            }),
+        ),
+    };
 }
 
 function renderOperation(operation: Operation): RenderedOperation {
@@ -152,6 +237,9 @@ function renderOperation(operation: Operation): RenderedOperation {
             ]
                 .filter(Boolean)
                 .join("\n"),
+            bindings: {
+                [operation.method]: createIntrinsicBinding(operation, false),
+            },
         };
     }
 
@@ -199,6 +287,13 @@ function renderOperation(operation: Operation): RenderedOperation {
             .join("\n"),
 
         methods: [method, configuredMethod].join("\n\n"),
+        bindings: {
+            [operation.method]: createIntrinsicBinding(operation, false),
+            [`${operation.method}With`]: createIntrinsicBinding(
+                operation,
+                true,
+            ),
+        },
     };
 }
 
@@ -206,14 +301,16 @@ type TypeImports = Map<string, Set<string>>;
 
 function collectTypeImports(operation: Operation, imports: TypeImports): void {
     for (const input of operation.inputs) {
-        const policy = typescriptTypes[input.type];
+        for (const type of input.acceptedTypes) {
+            const policy = typescriptTypes[type];
 
-        if (!policy?.importFrom) continue;
+            if (!policy?.importFrom) continue;
 
-        const names = imports.get(policy.importFrom) ?? new Set<string>();
+            const names = imports.get(policy.importFrom) ?? new Set<string>();
 
-        names.add(policy.name);
-        imports.set(policy.importFrom, names);
+            names.add(policy.name);
+            imports.set(policy.importFrom, names);
+        }
     }
 }
 
@@ -276,6 +373,10 @@ export function renderPlayerActions(
         .map((op) => op.methods)
         .join("\n\n");
     const importLines = renderTypeImports(imports);
+    const bindings = Object.assign(
+        {},
+        ...rendered.map((operation) => operation.bindings),
+    );
 
     return {
         source: [
@@ -288,6 +389,16 @@ export function renderPlayerActions(
             "export interface PlayerActions {",
             `${playerActionDefinitions}`,
             "}",
+            "",
+        ].join("\n"),
+        intrinsicSource: [
+            "// This file is generated. Do not edit manually.",
+            "",
+            `export const playerIntrinsics = ${JSON.stringify(
+                bindings,
+                null,
+                4,
+            )} as const;`,
             "",
         ].join("\n"),
         unsupported,

@@ -116,3 +116,31 @@ export function smash(event: PlayerAttackPlayer) {
         players.all().playSound(["item.trident.thunder"]);
     }
 }
+
+// should we do events and processes like this:
+export const join = events.player.join((event) => {
+    // This should lower to %default for 99% of events.
+    event.player.teleport(lobby);
+
+    // Counts down every 2 seconds, e.g. 10, 8, 6, 4, 2, 0.
+    countdown.run(10, 2);
+    // or override the targets and locals tags
+    countdown.runWith(10, 2, {
+        targets: "forEachPlayer",
+        locals: "copy",
+    });
+});
+
+export const countdown = process.create(
+    (seconds: number, step: number) => {
+        for (let secs = seconds; secs >= 0; secs -= step) {
+            broadcast(`${secs} seconds remaining!`);
+            scheduler.wait(step * time.second);
+        }
+    },
+    {
+        // Optional, provide default locals and targets option that can be overridden at runtime.
+        locals: "dontCopy", // Or "copy" or "share"
+        targets: "current", // or "none" or "forEachInSelection" or "forEachPlayer"
+    },
+);

@@ -21,17 +21,18 @@ export interface RawAction {
     name: string;
     codeblockName: string;
     subAction: string;
+    legacyReplacement?: unknown;
     tags: RawTag[];
-    slots: RawSlot[];
     icon: {
         name: string;
         description: string[];
-        arguments?: RawArgument[];
+        arguments: RawArgument[];
     };
 }
 
 export interface RawTag {
     name: string;
+    slot: number;
     defaultOption: string;
     options: Array<{
         name: string;
@@ -39,80 +40,45 @@ export interface RawTag {
 }
 
 export interface RawArgument {
-    type: string;
-    plural: boolean;
-    optional: boolean;
-    description: string[];
+    type?: string;
+    plural?: boolean;
+    optional?: boolean;
+    description?: string[];
     text?: string;
 }
 
-export type RawSlotArgument =
-    | RawArgument
-    | {
-          text: string;
-          type?: undefined;
-          description?: undefined;
-      };
-
-export interface RawTagSlot {
-    id: number;
-    type: "tag";
-    index: number;
-    optional: boolean;
-    tag: string;
+interface ProjectedArgument {
+    alternatives: Array<RawArgument | undefined>;
 }
 
-export interface RawSingleSlot {
-    id: number;
-    type: "single";
-    index: number;
-    optional: boolean;
-    argument: RawSlotArgument;
-}
+const valueTypes: Readonly<Record<string, string>> = {
+    ANY_TYPE: "any",
+    BLOCK: "item",
+    BLOCK_TAG: "text",
+    BYTE: "number",
+    COMPONENT: "component",
+    DICT: "dict",
+    ENTITY_TYPE: "item",
+    ITEM: "item",
+    LIST: "list",
+    LOCATION: "location",
+    NUMBER: "number",
+    PARTICLE: "particle",
+    POTION: "potion",
+    PROJECTILE: "item",
+    SOUND: "sound",
+    SPAWN_EGG: "item",
+    TEXT: "text",
+    VARIABLE: "variable",
+    VECTOR: "vector",
+    VEHICLE: "item",
+};
 
-export interface RawPluralSlot {
-    id: number;
-    type: "plural";
-    index: number;
-    optional: boolean;
-    argument: RawSlotArgument;
-    minimumLength: number;
-    listShortcut: boolean;
-}
-
-export interface RawStaticSlot {
-    id: number;
-    type: "static";
-    index: number;
-    optional: boolean;
-    argument: RawSlotArgument;
-}
-
-export interface RawOrVariant {
-    index: number;
-    name: string;
-    slots: Array<RawSingleSlot | RawPluralSlot | RawStaticSlot | RawTagSlot>;
-}
-
-export interface RawOrSlot {
-    id: number;
-    type: "or";
-    variants: RawOrVariant[];
-}
-
-export type RawSlot = RawTagSlot | RawSingleSlot | RawPluralSlot | RawOrSlot;
-
-function hasTypedArgument(argument: RawSlotArgument): argument is RawArgument {
+export function isCurrentPlayerAction(action: RawAction): boolean {
     return (
-        typeof argument.type === "string" && Array.isArray(argument.description)
+        action.codeblockName === "PLAYER ACTION" &&
+        action.legacyReplacement === undefined
     );
-}
-
-function resolveArgument(
-    argument: RawSlotArgument,
-    fallback: RawArgument | undefined,
-): RawArgument | undefined {
-    return hasTypedArgument(argument) ? argument : fallback;
 }
 
 class UnsupportedShapeError extends Error {}
@@ -130,7 +96,7 @@ function unsupportedPlayerAction(
             method: camelCase(action.name),
             native: {
                 block: "player_action",
-                action: action.subAction,
+                action: action.subAction.trim(),
             },
             reason,
             detail,
@@ -138,198 +104,135 @@ function unsupportedPlayerAction(
     };
 }
 
-function lacksPublicArgumentMetadata(action: RawAction): boolean {
-    const valueSlots = action.slots.filter(
-        (slot): slot is RawSingleSlot | RawPluralSlot =>
-            slot.type === "single" || slot.type === "plural",
-    );
+function projectArgumentChunk(chunk: readonly RawArgument[]): ProjectedArgument[] {
+    const alternatives: RawArgument[][] = [[]];
+    let hasOr = false;
+    for (const argument of chunk) {
+        if (argument.text === "OR") {
+            hasOr = true;
+            alternatives.push([]);
+        } else if (argument.type !== undefined) {
+            alternatives[alternatives.length - 1].push(argument);
+        }
+    }
 
-    return (
-        action.icon.name.trim() === "" &&
-        (action.icon.arguments?.length ?? 0) === 0 &&
-        valueSlots.length > 0 &&
-        valueSlots.every((slot) => !hasTypedArgument(slot.argument))
+    if (!hasOr) {
+        return alternatives[0].map((argument) => ({
+            alternatives: [argument],
+        }));
+    }
+
+    const width = Math.max(
+        0,
+        ...alternatives.map((alternative) => alternative.length),
     );
+    return Array.from({ length: width }, (_, index) => ({
+        alternatives: alternatives.map((alternative) => alternative[index]),
+    }));
+}
+
+function projectArguments(arguments_: readonly RawArgument[]): ProjectedArgument[] {
+    const projected: ProjectedArgument[] = [];
+    let chunk: RawArgument[] = [];
+    const flush = (): void => {
+        projected.push(...projectArgumentChunk(chunk));
+        chunk = [];
+    };
+
+    for (const argument of arguments_) {
+        if (argument.text === "") {
+            flush();
+        } else {
+            chunk.push(argument);
+        }
+    }
+    flush();
+    return projected;
 }
 
 export function normalizePlayerAction(action: RawAction): NormalizationResult {
-    if (lacksPublicArgumentMetadata(action)) {
-        return unsupportedPlayerAction(
-            action,
-            "missing_public_metadata",
-            "The action has placeholder slots and no public icon argument metadata.",
-        );
-    }
-
     try {
-        let iconArgumentIndex = 0;
-        const omittedInputs: Operation["omittedInputs"] = [];
+        const inputs = projectArguments(action.icon.arguments).flatMap<OperationInput>(
+            (projection, index) => {
+                const present = projection.alternatives.filter(
+                    (argument): argument is RawArgument => argument !== undefined,
+                );
+                const representative =
+                    present.find((argument) => argument.type !== "NONE") ??
+                    present[0];
+                const acceptedTypes = [
+                    ...new Set(
+                        present.flatMap((argument) => {
+                            if (!argument.type || argument.type === "NONE") {
+                                return [];
+                            }
+                            const type = valueTypes[argument.type];
+                            if (!type) {
+                                throw new UnsupportedShapeError(
+                                    `${action.name}: unknown value type ${argument.type}`,
+                                );
+                            }
+                            return [type];
+                        }),
+                    ),
+                ].toSorted();
 
-        const inputs = action.slots.flatMap<OperationInput>(
-            (slot, slotIndex) => {
-                if (slot.type === "tag") {
+                if (!representative || acceptedTypes.length === 0) {
                     return [];
                 }
-
-                const iconArgument = action.icon.arguments?.[iconArgumentIndex];
-                iconArgumentIndex += 1;
-
-                if (slot.type === "or") {
-                    const variants = slot.variants.map((variant) => {
-                        if (variant.slots.length !== 1) {
-                            throw new UnsupportedShapeError(
-                                `${action.name}: or-slot ${slotIndex} variant ${variant.index} has ${variant.slots.length} nested slots`,
-                            );
-                        }
-
-                        const nestedSlot = variant.slots[0];
-                        if (nestedSlot.type === "tag") {
-                            throw new UnsupportedShapeError(
-                                `${action.name}: or-slot ${slotIndex} variant ${variant.index} contains a tag slot`,
-                            );
-                        }
-
-                        const argument = resolveArgument(
-                            nestedSlot.argument,
-                            iconArgument,
-                        );
-                        if (!argument) {
-                            throw new UnsupportedShapeError(
-                                `${action.name}: cannot resolve argument metadata for or-slot ${slot.id} variant ${variant.index}`,
-                            );
-                        }
-
-                        return {
-                            argument,
-                            slot: nestedSlot,
-                            encoding: {
-                                orSlotId: slot.id,
-                                variantIndex: variant.index,
-                                slotId: nestedSlot.id,
-                                index: nestedSlot.index,
-                                layout: nestedSlot.type,
-                            } as const,
-                        };
-                    });
-
-                    if (variants.length === 0) {
-                        throw new UnsupportedShapeError(
-                            `${action.name}: or-slot ${slot.id} has no variants`,
-                        );
-                    }
-
-                    const first = variants[0];
-                    const firstType = first.argument.type.toLowerCase();
-                    const firstId = normalizeName(
-                        first.argument.description.join(" "),
-                    );
-                    const firstCardinality =
-                        first.slot.type === "plural" ? "plural" : "single";
-
-                    for (const variant of variants.slice(1)) {
-                        const type = variant.argument.type.toLowerCase();
-                        const id = normalizeName(
-                            variant.argument.description.join(" "),
-                        );
-                        const cardinality =
-                            variant.slot.type === "plural"
-                                ? "plural"
-                                : "single";
-
-                        if (
-                            type !== firstType ||
-                            id !== firstId ||
-                            cardinality !== firstCardinality
-                        ) {
-                            throw new UnsupportedShapeError(
-                                `${action.name}: or-slot ${slot.id} variants have different public argument shapes`,
-                            );
-                        }
-                    }
-
-                    const base = {
-                        id: firstId,
-                        type: firstType,
-                        native: {
-                            encodings: variants.map(
-                                (variant) => variant.encoding,
-                            ),
-                        },
-                    };
-
-                    if (first.slot.type === "plural") {
-                        return [
-                            {
-                                ...base,
-                                cardinality: "plural",
-                                minimumLength: first.slot.minimumLength,
-                                listShortcut: first.slot.listShortcut,
-                            },
-                        ];
-                    }
-
-                    return [
-                        {
-                            ...base,
-                            cardinality: "single",
-                            optional: first.argument.optional,
-                        },
-                    ];
-                }
-
-                const argument = resolveArgument(slot.argument, iconArgument);
-
-                if (!argument) {
-                    if (slot.optional) {
-                        omittedInputs.push({
-                            native: {
-                                slotId: slot.id,
-                                index: slot.index,
-                            },
-                            reason: "missing_public_metadata",
-                        });
-                        return [];
-                    }
-
+                if (!representative.description) {
                     throw new UnsupportedShapeError(
-                        `${action.name}: cannot resolve argument metadata for slot ${slot.id}`,
+                        `${action.name}: argument ${index} has no description`,
                     );
                 }
 
+                const optional = projection.alternatives.some(
+                    (argument) =>
+                        argument === undefined ||
+                        argument.optional === true ||
+                        argument.type === "NONE",
+                );
+                const plural = present.some(
+                    (argument) => argument.plural === true,
+                );
                 const base = {
-                    id: normalizeName(argument.description.join(" ")),
-                    type: argument.type.toLowerCase(),
-                    native: {
-                        encodings: [
-                            {
-                                slotId: slot.id,
-                                index: slot.index,
-                                layout: slot.type,
-                            },
-                        ],
-                    },
+                    id: normalizeName(representative.description.join(" ")),
+                    acceptedTypes:
+                        action.codeblockName === "PLAYER ACTION" &&
+                        action.name.trim() === "SendMessage" &&
+                        index === 0
+                            ? ["any"]
+                            : acceptedTypes,
+                    native: { index },
                 };
 
-                if (slot.type === "single") {
-                    return [
-                        {
-                            ...base,
-                            cardinality: "single",
-                            optional: argument.optional,
-                        },
-                    ];
-                }
-
-                return [
-                    {
-                        ...base,
-                        cardinality: "plural",
-                        minimumLength: slot.minimumLength,
-                        listShortcut: slot.listShortcut,
-                    },
-                ];
+                return plural
+                    ? [
+                          {
+                              ...base,
+                              cardinality: "plural" as const,
+                              minimumLength: optional ? 0 : 1,
+                          },
+                      ]
+                    : [
+                          {
+                              ...base,
+                              cardinality: "single" as const,
+                              optional,
+                          },
+                      ];
             },
         );
+
+        const inputIds = new Set<string>();
+        for (const input of inputs) {
+            if (!input.id || inputIds.has(input.id)) {
+                throw new UnsupportedShapeError(
+                    `${action.name}: duplicate or empty argument ID ${input.id}`,
+                );
+            }
+            inputIds.add(input.id);
+        }
 
         const operation: Operation = {
             id: `player.${normalizeName(action.name)}`,
@@ -342,11 +245,10 @@ export function normalizePlayerAction(action: RawAction): NormalizationResult {
 
             native: {
                 block: "player_action",
-                action: action.subAction,
+                action: action.subAction.trim(),
             },
 
             inputs,
-            omittedInputs,
 
             tags: action.tags.map((tag) => ({
                 id: normalizeName(tag.name),
@@ -354,6 +256,16 @@ export function normalizePlayerAction(action: RawAction): NormalizationResult {
                 options: tag.options.map((option) =>
                     normalizeName(option.name),
                 ),
+                native: {
+                    name: tag.name,
+                    slot: tag.slot,
+                    options: Object.fromEntries(
+                        tag.options.map((option) => [
+                            normalizeName(option.name),
+                            option.name,
+                        ]),
+                    ),
+                },
             })),
         };
 
