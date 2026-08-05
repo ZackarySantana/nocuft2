@@ -3,6 +3,7 @@ import type {
     OperationInput,
     OperationTag,
     UnsupportedOperation,
+    OperationReceiver,
 } from "../model.js";
 import {
     typescriptInputNames,
@@ -110,7 +111,7 @@ interface RenderedOperation {
     bindings: Record<string, TypeScriptIntrinsicBinding>;
 }
 
-interface TypeScriptParameterBinding {
+export interface TypeScriptParameterBinding {
     sourceIndex: number;
     input: string;
     types: string[];
@@ -127,7 +128,7 @@ interface TypeScriptOptionBinding {
 
 interface TypeScriptIntrinsicBinding {
     operation: string;
-    receiver: "player";
+    receiver: OperationReceiver;
     parameters: TypeScriptParameterBinding[];
     optionsIndex?: number;
     optionTags?: Record<string, TypeScriptOptionBinding>;
@@ -152,12 +153,11 @@ export interface RenderPlayerActionsResult {
     unsupported: UnsupportedOperation[];
 }
 
-function createIntrinsicBinding(
-    operation: Operation,
-    configured: boolean,
-): TypeScriptIntrinsicBinding {
-    const sourceOffset = configured ? 1 : 0;
-    const parameters = operation.inputs.map((input, index) => ({
+export function createParameterBindings(
+    operation: Pick<Operation, "inputs">,
+    sourceOffset = 0,
+): TypeScriptParameterBinding[] {
+    return operation.inputs.map((input, index) => ({
         sourceIndex: index + sourceOffset,
         input: input.id,
         types: input.acceptedTypes,
@@ -172,6 +172,28 @@ function createIntrinsicBinding(
         minimumLength:
             input.cardinality === "plural" ? input.minimumLength : 1,
     }));
+}
+
+export function renderOperationParameters(
+    operation: Pick<Operation, "inputs">,
+): string {
+    return operation.inputs
+        .map((input, index) =>
+            renderInput(
+                input,
+                index === operation.inputs.length - 1,
+                hasRequiredInputAfter(operation.inputs, index),
+            ),
+        )
+        .join(", ");
+}
+
+function createIntrinsicBinding(
+    operation: Operation,
+    configured: boolean,
+): TypeScriptIntrinsicBinding {
+    const sourceOffset = configured ? 1 : 0;
+    const parameters = createParameterBindings(operation, sourceOffset);
 
     if (!configured) {
         return {
@@ -212,20 +234,10 @@ function createIntrinsicBinding(
 }
 
 function renderOperation(operation: Operation): RenderedOperation {
-    if (operation.receiver !== "player") {
-        throw new Error(
-            `Expected player operation, received ${operation.receiver}`,
-        );
-    }
-
     const renderedInputs = operation.inputs.map((input, index) =>
-        renderInput(
-            input,
-            index === operation.inputs.length - 1,
-            hasRequiredInputAfter(operation.inputs, index),
-        ),
+        renderInput(input, index === operation.inputs.length - 1, hasRequiredInputAfter(operation.inputs, index)),
     );
-    const parameters = renderedInputs.join(", ");
+    const parameters = renderOperationParameters(operation);
     const documentation = renderOperationDocumentation(operation);
 
     if (operation.tags.length === 0) {
@@ -330,6 +342,31 @@ function renderTypeImports(imports: TypeImports): string[] {
 export function renderPlayerActions(
     operations: Operation[],
 ): RenderPlayerActionsResult {
+    return renderActions(operations, "player");
+}
+
+export function renderEntityActions(
+    operations: Operation[],
+): RenderPlayerActionsResult {
+    return renderActions(operations, "entity");
+}
+
+export function renderGameActions(
+    operations: Operation[],
+): RenderPlayerActionsResult {
+    return renderActions(operations, "game");
+}
+
+export function renderControlActions(
+    operations: Operation[],
+): RenderPlayerActionsResult {
+    return renderActions(operations, "control");
+}
+
+function renderActions(
+    operations: Operation[],
+    receiver: OperationReceiver,
+): RenderPlayerActionsResult {
     const rendered: RenderedOperation[] = [];
     const unsupported: UnsupportedOperation[] = [];
     const seenMethods = new Set<string>();
@@ -340,7 +377,7 @@ export function renderPlayerActions(
     )) {
         if (seenMethods.has(operation.method)) {
             throw new Error(
-                `Duplicate generated player method: ${operation.method}`,
+                `Duplicate generated ${receiver} method: ${operation.method}`,
             );
         }
         seenMethods.add(operation.method);
@@ -369,7 +406,7 @@ export function renderPlayerActions(
         .map((op) => op.topLevel)
         .filter(Boolean)
         .join("\n\n");
-    const playerActionDefinitions = rendered
+    const actionDefinitions = rendered
         .map((op) => op.methods)
         .join("\n\n");
     const importLines = renderTypeImports(imports);
@@ -386,15 +423,15 @@ export function renderPlayerActions(
             ...(importLines.length > 0 ? [""] : []),
             `${topLevel}`,
             "",
-            "export interface PlayerActions {",
-            `${playerActionDefinitions}`,
+            `export interface ${capitalize(receiver)}Actions {`,
+            `${actionDefinitions}`,
             "}",
             "",
         ].join("\n"),
         intrinsicSource: [
             "// This file is generated. Do not edit manually.",
             "",
-            `export const playerIntrinsics = ${JSON.stringify(
+            `export const ${receiver}Intrinsics = ${JSON.stringify(
                 bindings,
                 null,
                 4,
@@ -407,8 +444,9 @@ export function renderPlayerActions(
 
 export function renderUnsupportedActions(
     operations: UnsupportedOperation[],
+    receiver: OperationReceiver = "player",
 ): string {
-    const playerActions = operations
+    const actions = operations
         .toSorted((left, right) => left.id.localeCompare(right.id))
         .map((operation) =>
             [
@@ -438,8 +476,8 @@ export function renderUnsupportedActions(
         "    readonly detail: Detail;",
         "}",
         "",
-        "export interface UnsupportedPlayerActions {",
-        ...playerActions,
+        `export interface Unsupported${capitalize(receiver)}Actions {`,
+        ...actions,
         "}",
         "",
     ].join("\n");

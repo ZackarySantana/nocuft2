@@ -1,6 +1,8 @@
+export type OperationReceiver = "player" | "entity" | "game" | "control";
+
 export interface Operation {
     id: string;
-    receiver: "player";
+    receiver: OperationReceiver;
     method: string;
     description: string;
 
@@ -20,7 +22,7 @@ export type UnsupportedReason =
 
 export interface UnsupportedOperation {
     id: string;
-    receiver: "player";
+    receiver: OperationReceiver;
     method: string;
     native: {
         block: string;
@@ -73,5 +75,46 @@ export interface OperationTag {
 
 export interface SoundDefinition {
     id: string;
+    native: string;
+}
+
+export interface EventDefinition {
+    id: string;
+    group: "plot" | "player" | "entity";
+    method: string;
+    description: string;
+    callbackParameter: "none" | "player_event" | "entity_event";
+    cancellable: boolean;
+    fields: EventField[];
+    entityRoles: EventEntityRole[];
+    mutators: EventMutator[];
+    native: {
+        block: "game_event" | "event" | "entity_event";
+        action: string;
+    };
+}
+
+export interface EventMutator {
+    id: string;
+    method: string;
+    description: string;
+    native: {
+        block: "game_action";
+        action: string;
+    };
+    inputs: OperationInput[];
+    tags: OperationTag[];
+}
+
+export interface EventEntityRole {
+    name: "entity" | "victim" | "damager" | "killer" | "shooter" | "projectile";
+    type: "player" | "entity";
+    native: "Default" | "Victim" | "Damager" | "Killer" | "Shooter" | "Projectile";
+}
+
+export interface EventField {
+    name: string;
+    description: string;
+    type: "text" | "number" | "component" | "location" | "item" | "list" | "vector";
     native: string;
 }

@@ -1,0 +1,15 @@
+{
+  "name": "@nocuft/client",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build-java.mjs",
+    "test": "node scripts/test-java.mjs",
+    "build:mod": "node scripts/build-mod.mjs",
+    "install:mod": "node scripts/build-and-install-mod.mjs"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

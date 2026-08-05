@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Nocuft Code Viewer</title>
+    <link rel="stylesheet" href="/styles.css">
+    <script type="module" src="/app.js"></script>
+</head>
+<body>
+    <a class="skip" href="#viewer">Skip to code</a>
+    <header class="bar">
+        <h1 class="wordmark">nocuft</h1>
+        <span class="bar-divider" aria-hidden="true"></span>
+        <span class="bar-subject">code viewer</span>
+        <div class="bar-end">
+            <span id="connection" class="conn conn-waiting" role="status" aria-live="polite">
+                <span class="conn-dot" aria-hidden="true"></span>
+                <span id="connection-label">Connecting</span>
+            </span>
+        </div>
+    </header>
+    <div class="shell">
+        <aside class="rail" aria-label="Compiled templates">
+            <h2 id="rail-title" class="rail-title">Projects</h2>
+            <label class="search" for="project-search">
+                <span class="visually-hidden">Find projects or templates</span>
+                <input
+                    id="project-search"
+                    type="search"
+                    placeholder="Find projects or templates"
+                    autocomplete="off"
+                    spellcheck="false"
+                    aria-keyshortcuts="/ Control+K Meta+K"
+                >
+                <span class="search-key" aria-hidden="true">/</span>
+            </label>
+            <nav id="projects" aria-labelledby="rail-title"></nav>
+        </aside>
+        <main id="viewer" class="viewer" tabindex="-1" aria-label="Template code">
+            <section class="empty">
+                <p class="empty-kicker">Live compiler</p>
+                <h2 class="empty-title">Waiting for the first build</h2>
+                <p class="empty-body">Templates appear here as registered projects compile.</p>
+            </section>
+        </main>
+    </div>
+</body>
+</html>

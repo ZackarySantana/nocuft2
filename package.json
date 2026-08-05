@@ -7,19 +7,23 @@
         "packages/dfir",
         "packages/compiler",
         "packages/frontends/typescript",
+        "packages/deployment",
+        "packages/client",
         "packages/cli",
         "examples/hello",
         "examples/arena"
     ],
     "scripts": {
-        "build:sdk": "npm run build --workspace=@nocuft/diamondfire",
-        "build:dfir": "npm run build --workspace=@nocuft/dfir",
-        "build:compiler": "npm run build --workspace=@nocuft/compiler",
-        "build:frontend-typescript": "npm run build --workspace=@nocuft/frontend-typescript",
-        "build:cli": "npm run build --workspace=@nocuft/cli",
-        "build": "npm run build:sdk && npm run build:dfir && npm run build:compiler && npm run build:frontend-typescript && npm run build:cli",
+        "build": "node scripts/workspace.mjs build",
+        "test": "node scripts/workspace.mjs test",
         "generate": "npm run generate --workspace=@nocuft/generator",
-        "compile:hello": "npm run generate && npm run build && npm run compile --workspace=@nocuft/example-hello",
-        "check": "npm run typecheck --workspace=@nocuft/generator && npm test --workspace=@nocuft/generator && npm run generate && npm run build && npm test --workspace=@nocuft/frontend-typescript && npm test --workspace=@nocuft/compiler"
+        "generate:check": "node scripts/check-generated.mjs",
+        "cli": "node packages/cli/dist/main.js",
+        "link:cli": "npm link --workspace=@nocuft/cli",
+        "register:examples": "npm run build && node scripts/register-examples.mjs",
+        "mod:build": "npm run build:mod --workspace=@nocuft/client",
+        "mod:install": "npm run install:mod --workspace=@nocuft/client --",
+        "mod:run": "npm --prefix packages/client/mod exec -- ./gradlew runClient",
+        "check": "npm run generate:check && npm run build && npm test"
     }
 }

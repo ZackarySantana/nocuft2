@@ -1,2 +1,9 @@
 node_modules
 dist
+packages/client/.mods-dir
+packages/client/mod/.gradle
+packages/client/mod/build
+packages/client/mod/logs
+packages/client/mod/run
+**/nocuft/stage-*
+**/nocuft/.backup-*

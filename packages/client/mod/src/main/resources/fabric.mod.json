@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "id": "nocuft",
+  "version": "${version}",
+  "name": "Nocuft Client",
+  "description": "Applies compiled Nocuft projects to a DiamondFire plot, and shows which of them the plot is carrying.",
+  "authors": ["ZackarySantana"],
+  "contact": {
+    "sources": "https://github.com/ZackarySantana/nocuft"
+  },
+  "license": "MIT",
+  "environment": "client",
+  "entrypoints": {
+    "client": ["dev.nocuft.client.mod.NocuftClient"]
+  },
+  "depends": {
+    "fabricloader": ">=${loader_version}",
+    "minecraft": "~${minecraft_version}",
+    "java": ">=25",
+    "fabric-api": "*"
+  }
+}

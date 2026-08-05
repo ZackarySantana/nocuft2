@@ -1,7 +1,10 @@
 import type {
     NormalizationResult,
+    EventDefinition,
+    EventMutator,
     Operation,
     OperationInput,
+    OperationReceiver,
     SoundDefinition,
     UnsupportedOperation,
 } from "./model.js";
@@ -9,7 +12,18 @@ import { camelCase, normalizeName } from "./util/strings.js";
 
 export interface RawActionDump {
     actions: RawAction[];
+    gameValues: RawGameValue[];
     sounds: RawSound[];
+}
+
+export interface RawGameValue {
+    category: string;
+    icon: {
+        name: string;
+        description: string[];
+        worksWith: string[];
+        returnType: string;
+    };
 }
 
 export interface RawSound {
@@ -27,6 +41,8 @@ export interface RawAction {
         name: string;
         description: string[];
         arguments: RawArgument[];
+        cancellable?: boolean;
+        worksWith?: string[];
     };
 }
 
@@ -75,27 +91,278 @@ const valueTypes: Readonly<Record<string, string>> = {
 };
 
 export function isCurrentPlayerAction(action: RawAction): boolean {
+    return isCurrentAction(action, "PLAYER ACTION");
+}
+
+export function isCurrentEntityAction(action: RawAction): boolean {
+    return isCurrentAction(action, "ENTITY ACTION");
+}
+
+const eventScopedGameActions = new Set([
+    "SetEventDeathMsg",
+    "SetEventDamage",
+    "RedstoneStrength",
+    "SetEventSound",
+    "SetEventXP",
+    "SetExhaustion",
+    "SetDisplayedItem",
+    "SetEventProj",
+    "SetEventHeal",
+    "CancelEvent",
+    "UncancelEvent",
+]);
+
+export function isCurrentGameAction(action: RawAction): boolean {
     return (
-        action.codeblockName === "PLAYER ACTION" &&
-        action.legacyReplacement === undefined
+        isCurrentAction(action, "GAME ACTION") &&
+        !eventScopedGameActions.has(action.name.trim())
     );
+}
+
+export function isCurrentControlAction(action: RawAction): boolean {
+    return isCurrentAction(action, "CONTROL");
+}
+
+function isCurrentAction(action: RawAction, block: string): boolean {
+    return action.codeblockName === block && action.legacyReplacement === undefined;
+}
+
+export function normalizeEvents(
+    actions: readonly RawAction[],
+    gameValues: readonly RawGameValue[],
+): EventDefinition[] {
+    const eventValues = gameValues.filter(
+        (value) => value.category === "Event Values",
+    );
+    const mutatorActions = actions.filter(isCurrentEventMutatorAction);
+    const events = actions
+        .filter(
+            (action) =>
+                action.codeblockName === "GAME EVENT" ||
+                action.codeblockName === "PLAYER EVENT" ||
+                action.codeblockName === "ENTITY EVENT",
+        )
+        .map((action): EventDefinition => {
+            const player = action.codeblockName === "PLAYER EVENT";
+            const entity = action.codeblockName === "ENTITY EVENT";
+            const group = player ? "player" : entity ? "entity" : "plot";
+            const generatedMethod = camelCase(action.name.trim());
+            const method =
+                group === "plot" && generatedMethod.startsWith("plot")
+                    ? generatedMethod.slice(4).replace(/^./, (character) =>
+                          character.toLowerCase(),
+                      )
+                    : generatedMethod;
+            return {
+                id: `${group}.${method}`,
+                group,
+                method,
+                description: action.icon.description.join(" "),
+                callbackParameter: player
+                    ? "player_event"
+                    : entity
+                      ? "entity_event"
+                      : "none",
+                cancellable: action.icon.cancellable === true,
+                fields: eventValues
+                    .filter((value) => eventValueApplies(value, action))
+                    .map((value) => normalizeEventField(value)),
+                entityRoles: getEventEntityRoles(action),
+                mutators: mutatorActions
+                    .filter((mutator) => eventActionApplies(mutator, action))
+                    .map(normalizeEventMutator),
+                native: {
+                    block: player
+                        ? "event"
+                        : entity
+                          ? "entity_event"
+                          : "game_event",
+                    action: action.subAction.trim(),
+                },
+            };
+        });
+
+    const ids = new Set<string>();
+    for (const event of events) {
+        if (ids.has(event.id)) {
+            throw new Error(`Duplicate generated event ID: ${event.id}`);
+        }
+        ids.add(event.id);
+    }
+
+    return events.toSorted((left, right) => left.id.localeCompare(right.id));
+}
+
+function isCurrentEventMutatorAction(action: RawAction): boolean {
+    return (
+        isCurrentAction(action, "GAME ACTION") &&
+        action.icon.name.trim().startsWith("Set Event ") &&
+        (action.icon.worksWith?.length ?? 0) > 0
+    );
+}
+
+function eventActionApplies(mutator: RawAction, event: RawAction): boolean {
+    return (mutator.icon.worksWith ?? []).some((worksWith) =>
+        eventApplicabilityMatches(worksWith, event),
+    );
+}
+
+function eventApplicabilityMatches(worksWith: string, event: RawAction): boolean {
+    const applicability = normalizeEventApplicability(worksWith);
+    const eventName = normalizeEventApplicability(event.icon.name || event.name);
+    if (applicability === eventName) {
+        return true;
+    }
+    if (applicability === "damage events") {
+        return eventName.includes("damage") || eventName.includes("take dmg");
+    }
+    if (applicability === "death events") {
+        return eventName.includes("death") || eventName.includes("kill player");
+    }
+    if (applicability === "entity death events") {
+        return (
+            event.codeblockName === "ENTITY EVENT" &&
+            eventName.includes("death")
+        );
+    }
+    if (applicability === "exhaustion events") {
+        return event.name.trim() === "Exhaustion";
+    }
+    return false;
+}
+
+function normalizeEventMutator(action: RawAction): EventMutator {
+    const shape = normalizeOperationShape(action);
+    return {
+        id: `game.${normalizeName(action.name)}`,
+        method: camelCase(action.name.trim()),
+        description: action.icon.description.join(" ").replace(/\s+/g, " ").trim(),
+        native: {
+            block: "game_action",
+            action: action.subAction.trim(),
+        },
+        ...shape,
+    };
+}
+
+function getEventEntityRoles(action: RawAction): EventDefinition["entityRoles"] {
+    const playerVictimEvents = new Set([
+        "PlayerDmgPlayer",
+        "KillPlayer",
+        "ClickPlayer",
+        "LeftClickPlayer",
+    ]);
+    const name = action.name.trim();
+    if (playerVictimEvents.has(name)) {
+        return [{ name: "victim", type: "player", native: "Victim" }];
+    }
+
+    const roles: EventDefinition["entityRoles"] = [];
+    if (action.codeblockName === "ENTITY EVENT") {
+        roles.push({ name: "entity", type: "entity", native: "Default" });
+    }
+    const damageVictimEvents = new Set([
+        "EntityDmgEntity",
+        "ProjDmgEntity",
+        "EntityKillEntity",
+        "ProjKillEntity",
+        "DamageEntity",
+        "KillMob",
+        "EntityDmgPlayer",
+        "ProjDmgPlayer",
+        "MobKillPlayer",
+    ]);
+    if (damageVictimEvents.has(name)) {
+        roles.push({
+            name: "victim",
+            type:
+                name === "EntityDmgPlayer" ||
+                name === "ProjDmgPlayer" ||
+                name === "MobKillPlayer"
+                    ? "player"
+                    : "entity",
+            native: "Victim",
+        });
+    }
+    if (["EntityDmgEntity", "EntityDmgPlayer"].includes(name)) {
+        roles.push({ name: "damager", type: "entity", native: "Damager" });
+    }
+    if (["EntityKillEntity", "MobKillPlayer"].includes(name)) {
+        roles.push({ name: "killer", type: "entity", native: "Killer" });
+    }
+    if (["ProjDmgEntity", "ProjKillEntity", "ProjDmgPlayer"].includes(name)) {
+        roles.push(
+            { name: "shooter", type: "entity", native: "Shooter" },
+            { name: "projectile", type: "entity", native: "Projectile" },
+        );
+    }
+    if (["ShootBow", "ShootProjectile", "ProjHit"].includes(name)) {
+        roles.push({ name: "projectile", type: "entity", native: "Projectile" });
+    }
+    return roles;
+}
+
+function eventValueApplies(value: RawGameValue, event: RawAction): boolean {
+    return value.icon.worksWith.some((worksWith) =>
+        eventApplicabilityMatches(worksWith, event),
+    );
+}
+
+function normalizeEventApplicability(value: string): string {
+    return value
+        .trim()
+        .toLowerCase()
+        .replace(/^player /, "")
+        .replace(/ game event$/, " event")
+        .replace(/ power event$/, " event")
+        .replace(/ product$/, " event");
+}
+
+function normalizeEventField(value: RawGameValue): EventDefinition["fields"][number] {
+    const type = valueTypes[value.icon.returnType];
+    if (
+        type !== "text" &&
+        type !== "number" &&
+        type !== "component" &&
+        type !== "location" &&
+        type !== "item" &&
+        type !== "list" &&
+        type !== "vector"
+    ) {
+        throw new Error(
+            `Unsupported event value type ${value.icon.returnType} for ${value.icon.name}`,
+        );
+    }
+    return {
+        name: camelCase(
+            value.icon.name
+                .trim()
+                .replace(/^Event /, "")
+                .replace(/ Event /, " "),
+        ),
+        description: value.icon.description.join(" "),
+        type,
+        native: value.icon.name.trim(),
+    };
 }
 
 class UnsupportedShapeError extends Error {}
 
-function unsupportedPlayerAction(
+function unsupportedAction(
     action: RawAction,
+    receiver: OperationReceiver,
+    nativeBlock: string,
     reason: UnsupportedOperation["reason"],
     detail: string,
 ): NormalizationResult {
     return {
         kind: "unsupported",
         operation: {
-            id: `player.${normalizeName(action.name)}`,
-            receiver: "player",
+            id: `${receiver}.${normalizeName(action.name)}`,
+            receiver,
             method: camelCase(action.name),
             native: {
-                block: "player_action",
+                block: nativeBlock,
                 action: action.subAction.trim(),
             },
             reason,
@@ -151,7 +418,70 @@ function projectArguments(arguments_: readonly RawArgument[]): ProjectedArgument
 }
 
 export function normalizePlayerAction(action: RawAction): NormalizationResult {
+    return normalizeAction(action, "player");
+}
+
+export function normalizeEntityAction(action: RawAction): NormalizationResult {
+    return normalizeAction(action, "entity");
+}
+
+export function normalizeGameAction(action: RawAction): NormalizationResult {
+    return normalizeAction(action, "game");
+}
+
+export function normalizeControlAction(action: RawAction): NormalizationResult {
+    return normalizeAction(action, "control", "control");
+}
+
+function normalizeAction(
+    action: RawAction,
+    receiver: OperationReceiver,
+    nativeBlock = `${receiver}_action`,
+): NormalizationResult {
     try {
+        const shape = normalizeOperationShape(action);
+
+        const operation: Operation = {
+            id: `${receiver}.${normalizeName(action.name)}`,
+            receiver,
+            method: camelCase(action.name),
+            description: action.icon.description
+                .join(" ")
+                .replace(/\s+/g, " ")
+                .trim(),
+
+            native: {
+                block: nativeBlock,
+                action: action.subAction.trim(),
+            },
+
+            ...shape,
+        };
+
+        return {
+            kind: "operation",
+            operation,
+        };
+    } catch (cause) {
+        if (cause instanceof UnsupportedShapeError) {
+            return unsupportedAction(
+                action,
+                receiver,
+                nativeBlock,
+                "unsupported_shape",
+                cause.message,
+            );
+        }
+
+        throw new Error(`Failed to normalize ${receiver} action ${action.name}`, {
+            cause,
+        });
+    }
+}
+
+export function normalizeOperationShape(
+    action: RawAction,
+): Pick<Operation, "inputs" | "tags"> {
         const inputs = projectArguments(action.icon.arguments).flatMap<OperationInput>(
             (projection, index) => {
                 const present = projection.alternatives.filter(
@@ -234,22 +564,8 @@ export function normalizePlayerAction(action: RawAction): NormalizationResult {
             inputIds.add(input.id);
         }
 
-        const operation: Operation = {
-            id: `player.${normalizeName(action.name)}`,
-            receiver: "player",
-            method: camelCase(action.name),
-            description: action.icon.description
-                .join(" ")
-                .replace(/\s+/g, " ")
-                .trim(),
-
-            native: {
-                block: "player_action",
-                action: action.subAction.trim(),
-            },
-
+        return {
             inputs,
-
             tags: action.tags.map((tag) => ({
                 id: normalizeName(tag.name),
                 defaultOption: normalizeName(tag.defaultOption),
@@ -268,24 +584,6 @@ export function normalizePlayerAction(action: RawAction): NormalizationResult {
                 },
             })),
         };
-
-        return {
-            kind: "operation",
-            operation,
-        };
-    } catch (cause) {
-        if (cause instanceof UnsupportedShapeError) {
-            return unsupportedPlayerAction(
-                action,
-                "unsupported_shape",
-                cause.message,
-            );
-        }
-
-        throw new Error(`Failed to normalize player action ${action.name}`, {
-            cause,
-        });
-    }
 }
 
 export function normalizeSounds(

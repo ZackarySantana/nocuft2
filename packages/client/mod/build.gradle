@@ -1,0 +1,79 @@
+plugins {
+	id 'net.fabricmc.fabric-loom' version "${loom_version}"
+}
+
+version = project.mod_version
+group = project.maven_group
+
+base {
+	archivesName = project.archives_base_name
+}
+
+repositories {
+	mavenCentral()
+}
+
+sourceSets {
+	main {
+		java {
+			// The half of the client that needs no Minecraft is compiled from
+			// core, so the planner, the codecs, and the digest rule stay
+			// testable with javac alone and cannot drift from the mod.
+			srcDir "${rootDir}/../core/src/main/java"
+		}
+	}
+}
+
+dependencies {
+	// Bundled into the mod jar, because a player installs one file. Minecraft
+	// ships Netty, but a WebSocket server on top of it is a great deal more
+	// code than this for no gain the client would notice.
+	implementation include("org.java-websocket:Java-WebSocket:${project.java_websocket_version}")
+
+	minecraft "com.mojang:minecraft:${project.minecraft_version}"
+	implementation "net.fabricmc:fabric-loader:${project.loader_version}"
+	implementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_api_version}"
+}
+
+processResources {
+	def properties = [
+		version: project.version,
+		minecraft_version: project.minecraft_version,
+		loader_version: project.loader_version,
+	]
+	inputs.properties(properties)
+	filesMatching('fabric.mod.json') {
+		expand(properties)
+	}
+}
+
+// Drives the API over a real socket. It needs no Minecraft and no test
+// framework, so it runs as part of the ordinary build rather than waiting for
+// a game: the promises it checks, that a request is always answered and never
+// answered twice, are not ones a reader can verify by looking.
+def apiCheck = tasks.register('apiCheck', JavaExec) {
+	group = 'verification'
+	description = 'Drives the client API over a loopback socket.'
+	classpath = sourceSets.test.runtimeClasspath
+	mainClass = 'dev.nocuft.client.mod.ApiServerCheck'
+}
+
+tasks.named('check') {
+	dependsOn apiCheck
+}
+
+tasks.named('test', Test) {
+	// The checks here are plain programs rather than JUnit cases, so there is
+	// nothing for Gradle to discover and that is not a misconfiguration.
+	failOnNoDiscoveredTests = false
+}
+
+tasks.withType(JavaCompile).configureEach {
+	it.options.release = 25
+	it.options.encoding = 'UTF-8'
+}
+
+java {
+	sourceCompatibility = JavaVersion.VERSION_25
+	targetCompatibility = JavaVersion.VERSION_25
+}

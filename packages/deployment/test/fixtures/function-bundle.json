@@ -1,0 +1,26 @@
+{
+  "format": "diamondfire-deployment",
+  "version": 0,
+  "protocolVersion": 0,
+  "compiler": {
+    "name": "nocuft",
+    "version": "0.1.0"
+  },
+  "project": {
+    "id": "4c026963-a287-4e18-a86c-747d86e3a917",
+    "module": "app.hello"
+  },
+  "capabilities": [],
+  "templates": [
+    {
+      "id": "app.hello/hello",
+      "kind": "function",
+      "name": "hello",
+      "sha256": "c72ab91ab59f6583bb856fa158062324fe6bca806ad9053c2f1898e6fcffb578",
+      "encoding": "diamondfire-template-gzip-base64",
+      "compressedBytes": 85,
+      "uncompressedBytes": 77,
+      "data": "H4sIAAAAAAACA6tWSsrJT84uVrKKrlZKLEovVrKqVsosSc0FicTW6kCklayU0krzkpV0lFISSxKVrJQyUnNy8pV0lDJTlKygSmpjawFOajzaTQAAAA=="
+    }
+  ]
+}

@@ -3,13 +3,96 @@ export interface LowModule {
     templates: LowTemplate[];
 }
 
-export interface LowTemplate {
+export type LowTemplate = LowFunctionTemplate | LowProcessTemplate | LowEventTemplate;
+
+export interface LowFunctionTemplate {
     kind: "function";
     name: string;
+    exported?: boolean;
+    parameters?: LowParameter[];
     body: LowStatement[];
 }
 
-export type LowStatement = LowActionStatement;
+export interface LowProcessTemplate {
+    kind: "process";
+    name: string;
+    block: string;
+    action: string;
+    exported?: boolean;
+    parameters?: LowValueParameter[];
+    tags: LowTag[];
+    body: LowStatement[];
+}
+
+export type LowParameter = LowValueParameter | LowTargetParameter;
+
+export interface LowValueParameter {
+    kind: "value";
+    name: string;
+    type: FunctionValueType;
+}
+
+export interface LowTargetParameter {
+    kind: "target";
+    name: string;
+    target: "player";
+}
+
+export interface LowEventTemplate {
+    kind: "event";
+    name: string;
+    block: string;
+    action: string;
+    body: LowStatement[];
+}
+
+export type LowStatement =
+    | LowActionStatement
+    | LowFunctionCallStatement
+    | LowStartProcessStatement
+    | LowSelectObjectStatement
+    | LowIfStatement;
+
+export interface LowIfStatement {
+    kind: "if";
+    block: "if_player";
+    action: "IsHolding";
+    target: "current_player";
+    arguments: LowArgument[];
+    tags: LowTag[];
+    body: LowStatement[];
+}
+
+export interface LowFunctionCallStatement {
+    kind: "call_function";
+    function: string;
+    arguments: LowValue[];
+    target?: LowTarget;
+}
+
+export interface LowStartProcessStatement {
+    kind: "start_process";
+    process: string;
+    block: string;
+    action: string;
+    arguments: LowValue[];
+    tags: LowTag[];
+}
+
+export interface LowSelectObjectStatement {
+    kind: "select_object";
+    action: string;
+    arguments: LowArgument[];
+    tags: LowTag[];
+}
+
+export type LowEventEntityRole =
+    | "default"
+    | "victim"
+    | "damager"
+    | "killer"
+    | "shooter"
+    | "projectile";
 
 export interface LowActionStatement {
     kind: "action";
@@ -20,7 +103,7 @@ export interface LowActionStatement {
     tags: LowTag[];
 }
 
-export type LowTarget = "all_players";
+export type LowTarget = "all_players" | "current_player" | "selection";
 
 export interface LowArgument {
     index: number;
@@ -30,12 +113,35 @@ export interface LowArgument {
 }
 
 export type LowValue =
+    | LowGameValue
+    | LowParameterValue
     | LowTextValue
     | LowNumberValue
     | LowComponentValue
     | LowSoundValue
     | LowLocationValue
-    | LowItemValue;
+    | LowItemValue
+    | LowVariableValue;
+
+export type LowVariableValue = {
+    kind: "variable";
+    name: string;
+    scope: "line" | "unsaved" | "saved";
+    valueType: "location" | "number" | "text" | "boolean";
+};
+
+export type LowParameterValue = {
+    kind: "parameter";
+    name: string;
+    valueType: FunctionValueType;
+};
+
+export type LowGameValue = {
+    kind: "game_value";
+    name: string;
+    valueType: "text" | "number" | "component" | "location" | "item" | "list" | "vector";
+    target: string;
+};
 
 export type LowTextValue = {
     kind: "text";
@@ -78,3 +184,4 @@ export interface LowTag {
         slot: number;
     };
 }
+import type { FunctionValueType } from "./high.js";

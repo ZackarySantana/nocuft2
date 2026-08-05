@@ -10,6 +10,7 @@ export interface VariableFactory<Target = never> {
     number(name: string): FactoryVariable<number, Target>;
     boolean(name: string): FactoryVariable<boolean, Target>;
     enum<const Values extends readonly string[]>(
+        name: string,
         ...values: Values
     ): FactoryVariable<Values[number], Target>;
 }

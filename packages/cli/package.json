@@ -3,18 +3,29 @@
     "version": "0.1.0",
     "private": true,
     "type": "module",
+    "main": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "exports": {
+        ".": {
+            "types": "./dist/index.d.ts",
+            "default": "./dist/index.js"
+        }
+    },
     "bin": {
         "nocuft": "./dist/main.js"
     },
     "scripts": {
-        "build": "tsc && chmod +x dist/main.js"
+        "build": "tsc && node scripts/copy-web-assets.mjs && chmod +x dist/main.js",
+        "test": "node --check web/app.js && tsx --test test/**/*.test.ts"
     },
     "dependencies": {
         "@nocuft/compiler": "0.1.0",
+        "@nocuft/deployment": "0.1.0",
         "@nocuft/frontend-typescript": "0.1.0"
     },
     "devDependencies": {
         "@types/node": "latest",
+        "tsx": "latest",
         "typescript": "latest"
     }
 }
