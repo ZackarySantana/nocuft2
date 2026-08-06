@@ -35,6 +35,7 @@ export interface RawAction {
     name: string;
     codeblockName: string;
     subAction: string;
+    subActionBlocks?: string[];
     legacyReplacement?: unknown;
     tags: RawTag[];
     icon: {

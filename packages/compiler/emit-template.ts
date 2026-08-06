@@ -4,9 +4,11 @@ import type {
     LowStatement,
     LowTemplate,
     LowValue,
+    LowVariableValue,
     LowFunctionTemplate,
     LowProcessTemplate,
 } from "@nocuft/dfir";
+import { structuralBindings } from "./generated/structural-bindings.js";
 
 export interface NativeItem {
     id: string;
@@ -22,6 +24,7 @@ export interface NativeCodeBlock {
     id: "block";
     block: string;
     action?: string;
+    subAction?: string;
     data?: string;
     args: {
         items: NativeSlotItem[];
@@ -111,6 +114,36 @@ function emitStatement(statement: LowStatement): NativeCodeBlock[] {
                 emitBracket("open"),
                 ...statement.body.flatMap(emitStatement),
                 emitBracket("close"),
+                ...(statement.elseBody
+                    ? [
+                          {
+                              id: "block" as const,
+                              block: structuralBindings.else.native.block,
+                              args: { items: [] },
+                          },
+                          emitBracket("open"),
+                          ...statement.elseBody.flatMap(emitStatement),
+                          emitBracket("close"),
+                      ]
+                    : []),
+            ];
+        case "repeat":
+            return [
+                {
+                    ...emitAction({
+                        kind: "action",
+                        block: statement.block,
+                        action: statement.action,
+                        arguments: statement.arguments,
+                        tags: statement.tags,
+                    }),
+                    ...(statement.subAction === undefined
+                        ? {}
+                        : { subAction: statement.subAction }),
+                },
+                emitBracket("open"),
+                ...statement.body.flatMap(emitStatement),
+                emitBracket("close"),
             ];
     }
 }
@@ -127,13 +160,18 @@ function emitBracket(direct: "open" | "close"): NativeCodeBlock {
 function emitSelectObject(
     statement: import("@nocuft/dfir").LowSelectObjectStatement,
 ): NativeCodeBlock {
-    return emitAction({
-        kind: "action",
-        block: "select_obj",
-        action: statement.action,
-        arguments: statement.arguments,
-        tags: statement.tags,
-    });
+    return {
+        ...emitAction({
+            kind: "action",
+            block: "select_obj",
+            action: statement.action,
+            arguments: statement.arguments,
+            tags: statement.tags,
+        }),
+        ...(statement.subAction === undefined
+            ? {}
+            : { subAction: statement.subAction }),
+    };
 }
 
 function emitEventHeader(block: string, action: string): NativeCodeBlock {
@@ -154,8 +192,10 @@ function emitFunctionHeader(template: LowFunctionTemplate): NativeCodeBlock {
             data: {
                 name: parameter.name,
                 optional: false,
-                plural: false,
-                type: nativeParameterType(parameter.type),
+                plural: parameter.rest === true,
+                type: nativeParameterType(
+                    parameter.rest === true ? parameter.type.elementType : parameter.type,
+                ),
             },
         },
         slot,
@@ -175,7 +215,8 @@ function emitFunctionHeader(template: LowFunctionTemplate): NativeCodeBlock {
                         id: "bl_tag",
                         data: {
                             tag: "Is Hidden",
-                            option: "False",
+                            option:
+                                template.exported === false ? "True" : "False",
                             block: "func",
                             action: "dynamic",
                         },
@@ -195,13 +236,14 @@ function emitProcessHeader(template: LowProcessTemplate): NativeCodeBlock {
                 data: {
                     name: parameter.name,
                     optional: false,
-                    plural: false,
+                    plural: parameter.rest === true,
                     type: nativeParameterType(parameter.type),
                 },
             },
             slot,
         }),
     );
+    assertPhysicalArgumentLimit(items.length, `Process ${template.name} header`);
     const occupiedSlots = new Set(items.map((item) => item.slot));
     for (const tag of template.tags) {
         pushItem(items, occupiedSlots, {
@@ -218,8 +260,9 @@ function emitProcessHeader(template: LowProcessTemplate): NativeCodeBlock {
 }
 
 function nativeParameterType(
-    type: import("@nocuft/dfir").FunctionValueType,
+    type: import("@nocuft/dfir").ValueType,
 ): string {
+    if (typeof type === "object") return type.kind === "list" ? "list" : "dict";
     switch (type) {
         case "text": return "txt";
         case "number":
@@ -233,6 +276,7 @@ function nativeParameterType(
 }
 
 function emitFunctionCall(statement: import("@nocuft/dfir").LowFunctionCallStatement): NativeCodeBlock {
+    assertPhysicalArgumentLimit(statement.arguments.length, `Call to ${statement.function}`);
     return {
         id: "block",
         block: "call_func",
@@ -250,6 +294,7 @@ function emitFunctionCall(statement: import("@nocuft/dfir").LowFunctionCallState
 function emitStartProcess(
     statement: import("@nocuft/dfir").LowStartProcessStatement,
 ): NativeCodeBlock {
+    assertPhysicalArgumentLimit(statement.arguments.length, `Start process ${statement.process}`);
     const items: NativeSlotItem[] = statement.arguments.map((value, slot) => ({
         item: emitValue(value),
         slot,
@@ -267,6 +312,10 @@ function emitStartProcess(
         data: statement.process,
         args: { items: items.toSorted((left, right) => left.slot - right.slot) },
     };
+}
+
+function assertPhysicalArgumentLimit(count: number, context: string): void {
+    if (count > 27) throw new Error(`${context} has ${count} physical arguments; native calls support at most 27`);
 }
 
 function emitTag(
@@ -346,7 +395,7 @@ function emitValue(value: LowValue): NativeItem {
         case "variable":
             return {
                 id: "var",
-                data: { name: value.name, scope: value.scope },
+                data: { name: nativeVariableName(value), scope: value.scope },
             };
         case "game_value":
             return {
@@ -401,13 +450,24 @@ function emitValue(value: LowValue): NativeItem {
                 },
             };
         case "item":
+            if (value.snbt !== undefined) {
+                if (value.snbt.trim().length === 0) throw new Error("Captured item SNBT cannot be empty");
+                return { id: "item", data: { item: value.snbt } };
+            }
+            if (!Number.isFinite(value.count) || !Number.isInteger(value.count) || value.count < 1) {
+                throw new Error(`Invalid item count: ${value.count}`);
+            }
             return {
                 id: "item",
                 data: {
-                    item: `{count:1,id:${JSON.stringify(value.id)}}`,
+                    item: `{count:${value.count},id:${JSON.stringify(value.id)}}`,
                 },
             };
     }
+}
+
+function nativeVariableName(value: LowVariableValue): string {
+    return value.scope !== "line" && value.owner === "player" ? `%uuid ${value.name}` : value.name;
 }
 
 function pushItem(

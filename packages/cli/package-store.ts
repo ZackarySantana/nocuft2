@@ -1,4 +1,3 @@
-import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createVersionedFile } from "./versioned-file.js";
 
@@ -12,10 +11,7 @@ export interface InstalledPackage {
     language: "typescript";
     sourceSha256: string;
     artifactSha256: string;
-    exportsSha256: string;
-    stubSha256: string;
     toolchain: string;
-    exports: string[];
 }
 
 export interface PackageStore {
@@ -40,10 +36,6 @@ export function createPackageStore(projectRoot: string): PackageStore {
     return { load: file.read, save: file.write };
 }
 
-export async function readJson(path: string): Promise<unknown> {
-    return JSON.parse(await readFile(path, "utf8"));
-}
-
 function parseLock(text: string): InstalledPackage[] {
     const value: unknown = JSON.parse(text);
     if (!isRecord(value) || value.format !== "nocuft-lock" || value.version !== 1 || !isRecord(value.packages)) {
@@ -53,9 +45,7 @@ function parseLock(text: string): InstalledPackage[] {
         if (!validPackageAlias(alias) || !isRecord(entry) || typeof entry.source !== "string"
             || typeof entry.resolvedSource !== "string" || entry.language !== "typescript"
             || typeof entry.sourceSha256 !== "string" || typeof entry.artifactSha256 !== "string"
-            || typeof entry.exportsSha256 !== "string" || typeof entry.stubSha256 !== "string"
-            || typeof entry.toolchain !== "string" || !Array.isArray(entry.exports)
-            || entry.exports.some((name) => typeof name !== "string")) {
+            || typeof entry.toolchain !== "string") {
             throw new Error(`Invalid lock entry for package ${JSON.stringify(alias)}`);
         }
         return { alias, ...entry } as InstalledPackage;

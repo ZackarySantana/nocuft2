@@ -22,6 +22,12 @@ export interface NocuftSessionOptions {
     timeoutMs?: number;
     onStatus?: (status: NocuftStatus) => void;
     onClosed?: (reason: string) => void;
+    onRequest?: (request: NocuftInboundRequest) => Promise<Record<string, unknown>>;
+}
+
+export interface NocuftInboundRequest {
+    method: string;
+    params: Record<string, unknown>;
 }
 
 export interface PushResult {
@@ -91,6 +97,36 @@ export async function openNocuftSession(
         try {
             frame = JSON.parse(message) as Record<string, unknown>;
         } catch {
+            return;
+        }
+        if (frame.kind === "request") {
+            const id = String(frame.id);
+            const method = String(frame.method);
+            if (options.onRequest === undefined) {
+                connection.send(JSON.stringify({
+                    kind: "response",
+                    id,
+                    method,
+                    ok: false,
+                    error: { code: "protocol.unknown_method", message: "This Nocuft command does not accept client requests." },
+                }));
+                return;
+            }
+            void options.onRequest({
+                method,
+                params: (frame.params ?? {}) as Record<string, unknown>,
+            }).then((result) => connection.send(JSON.stringify({
+                kind: "response", id, method, ok: true, result,
+            })), (error: unknown) => connection.send(JSON.stringify({
+                kind: "response",
+                id,
+                method,
+                ok: false,
+                error: {
+                    code: "item.capture_failed",
+                    message: error instanceof Error ? error.message : String(error),
+                },
+            })));
             return;
         }
         if (frame.kind === "event") {

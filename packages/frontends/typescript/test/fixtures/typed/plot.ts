@@ -1,4 +1,4 @@
-import { item, location, players, sound } from "@nocuft/diamondfire";
+import { item, location, players, sound } from "nocuft";
 
 const spawn = location(1, 65, -2);
 

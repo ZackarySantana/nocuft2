@@ -1,4 +1,4 @@
-import { game, players } from "@nocuft/diamondfire";
+import { game, players } from "nocuft";
 
 export function configureGame(): void {
     game.mobSpawningWith({ mobSpawning: "disable" });

@@ -13,14 +13,11 @@ export interface PlayerSelection extends PlayerActions {
     nearestWith(options: SelectionDistanceOptions, location: Location, count?: number): PlayerSelection;
     farthest(location: Location, count?: number): PlayerSelection;
     farthestWith(options: SelectionDistanceOptions, location: Location, count?: number): PlayerSelection;
-    set<T>(variable: PlayerVariable<T, Player>, value: T): void;
-    where<T>(variable: PlayerVariable<T, Player>, value: T): PlayerSelection;
+    set<T>(variable: PlayerVariable<T>, value: T): void;
+    where<T>(variable: PlayerVariable<T>, value: T): PlayerSelection;
 }
 
-export interface Player extends PlayerSelection, PlayerValues {
-    name(): string;
-    uuid(): string;
-}
+export interface Player extends PlayerSelection, PlayerValues {}
 
 /** A player or player selection passed into a reusable package function. */
 export type PlayerTarget = PlayerSelection;

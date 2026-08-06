@@ -186,6 +186,32 @@ export const selectorBindings = {
             ]
         }
     },
+    "select.FilterCondition": {
+        "id": "select.FilterCondition",
+        "owner": "selection",
+        "method": "where",
+        "kind": "filter",
+        "resultType": "entity",
+        "native": {
+            "action": "FilterCondition",
+            "subAction": "=",
+            "arguments": [
+                {
+                    "index": 0,
+                    "type": "any",
+                    "cardinality": "single",
+                    "optional": false
+                },
+                {
+                    "index": 1,
+                    "type": "any",
+                    "cardinality": "plural",
+                    "optional": false
+                }
+            ],
+            "tags": []
+        }
+    },
     "select.EventTarget": {
         "id": "select.EventTarget",
         "owner": "event",

@@ -1,6 +1,6 @@
 import type { EmittedTemplate, NativeCodeBlock } from "@nocuft/compiler";
 import { stat } from "node:fs/promises";
-import type { BuildDiagnostic, ProjectBuildResult } from "./build-project.js";
+import type { BuildDiagnostic, ProjectBuildResult, ProjectTemplateOrigin } from "./build-project.js";
 import type { LiveProject, LiveProjectObserver } from "./live-projects.js";
 
 export type WebProjectStatus = "compiling" | "ready" | "failed";
@@ -10,6 +10,7 @@ export interface WebTemplateState {
     name: string;
     nativeName: string;
     kind: EmittedTemplate["kind"];
+    origin: ProjectTemplateOrigin;
     blocks: NativeCodeBlock[];
 }
 
@@ -150,6 +151,7 @@ function stateAfterBuild(
             name: template.name,
             nativeName: template.nativeName,
             kind: template.kind,
+            origin: template.origin,
             blocks: template.template.blocks,
         })),
     };

@@ -428,7 +428,7 @@ test("lowers a main-hand item condition around an event mutator", () => {
                             kind: "held_item",
                             receiver: "current_player",
                             hand: "main",
-                            item: { kind: "item", id: "minecraft:mace" },
+                            item: { kind: "item", id: "minecraft:mace", count: 1 },
                         },
                         body: [
                             {
@@ -1117,6 +1117,7 @@ test("lowers plot game variable reads, writes, and clears", () => {
             kind: "variable",
             name: "phase",
             scope: "unsaved",
+            owner: "plot",
             valueType: "text",
         });
         assert.deepEqual(set.arguments[1].values[0], { kind: "text", value: "lobby" });

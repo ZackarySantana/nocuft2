@@ -29,6 +29,7 @@ test("starts the viewer before building and publishes the successful result", as
                 nativeName: "hello",
                 kind: "function",
                 json: "unused",
+                origin: { kind: "host" },
                 template: { blocks: [] },
             }],
             sources: [{ path: "/work/plot.ts", sha256: "one" }],
@@ -46,6 +47,7 @@ test("starts the viewer before building and publishes the successful result", as
     assert.equal(initial?.projects[0]?.status, "compiling");
     assert.deepEqual(snapshots.map(({ revision }) => revision), [1, 2]);
     assert.equal(snapshots[1]?.projects[0]?.templates[0]?.id, "hello/hello");
+    assert.deepEqual(snapshots[1]?.projects[0]?.templates[0]?.origin, { kind: "host" });
     assert.equal(closed, true);
     assert.match(output.stdout(), /Nocuft web viewer: http:\/\/127\.0\.0\.1:31381\//u);
     assert.equal(output.stderr(), "");

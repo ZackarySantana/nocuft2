@@ -1,10 +1,12 @@
 import { createHash } from "node:crypto";
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
+import type { PackageArtifact } from "@nocuft/compiler";
 import type { CliIo } from "./cli.js";
 import { fetchPackageSource } from "./package-fetch.js";
 import { installPackage, loadVerifiedPackages } from "./package-manager.js";
 import { createPackageStore, PACKAGE_DIRECTORY } from "./package-store.js";
+import { renderTextTable } from "./text-table.js";
 
 export type PackageCommand =
     | { verb: "install"; alias: string; source: string }
@@ -19,31 +21,35 @@ export async function runPackageCommand(command: PackageCommand, projectRoot: st
     const store = createPackageStore(projectRoot);
     switch (command.verb) {
         case "install": {
-            const entry = await installPackage(projectRoot, command.alias, command.source, { baseDirectory: process.cwd() });
+            const { entry, artifact } = await installPackage(projectRoot, command.alias, command.source, { baseDirectory: process.cwd() });
             io.stdout(`Installed ${entry.alias} from ${entry.source} into ${PACKAGE_DIRECTORY}/${entry.alias}.\n`);
-            io.stdout(`Exports: ${entry.exports.join(", ")}\n`);
+            io.stdout(`Exports: ${exportNames(artifact)}\n`);
             return 0;
         }
         case "list": {
-            const entries = await store.load();
-            if (entries.length === 0) {
+            const loaded = await loadVerifiedPackages(projectRoot);
+            if (loaded.length === 0) {
                 io.stdout("No vendored packages.\n");
                 return 0;
             }
-            io.stdout("NAME  LANGUAGE    EXPORTS\n");
-            for (const entry of entries) io.stdout(`${entry.alias}  ${entry.language}  ${entry.exports.join(", ")}\n`);
+            io.stdout(renderTextTable(["NAME", "LANGUAGE", "EXPORTS"], loaded.map((pkg) => [
+                pkg.entry.alias,
+                pkg.entry.language,
+                exportNames(pkg.artifact),
+            ])));
             return 0;
         }
         case "show": {
-            const entry = (await store.load()).find((item) => item.alias === command.alias);
-            if (!entry) throw new Error(`Package ${JSON.stringify(command.alias)} is not installed`);
-            io.stdout(`Name:      ${entry.alias}\nSource:    ${entry.source}\nResolved:  ${entry.resolvedSource}\nLanguage:  ${entry.language}\nDirectory: ${PACKAGE_DIRECTORY}/${entry.alias}\nSource SHA:   ${entry.sourceSha256}\nArtifact SHA: ${entry.artifactSha256}\nExports SHA:  ${entry.exportsSha256}\nStub SHA:     ${entry.stubSha256}\nToolchain: ${entry.toolchain}\nExports:   ${entry.exports.join(", ")}\n`);
+            const loaded = (await loadVerifiedPackages(projectRoot)).find((item) => item.entry.alias === command.alias);
+            if (!loaded) throw new Error(`Package ${JSON.stringify(command.alias)} is not installed`);
+            const entry = loaded.entry;
+            io.stdout(`Name:      ${entry.alias}\nSource:    ${entry.source}\nResolved:  ${entry.resolvedSource}\nLanguage:  ${entry.language}\nDirectory: ${PACKAGE_DIRECTORY}/${entry.alias}\nSource SHA:   ${entry.sourceSha256}\nArtifact SHA: ${entry.artifactSha256}\nToolchain: ${entry.toolchain}\nExports:   ${exportNames(loaded.artifact)}\n`);
             return 0;
         }
         case "verify": {
             const loaded = await loadVerifiedPackages(projectRoot);
             if (loaded.length === 0) io.stdout("No vendored packages.\n");
-            for (const pkg of loaded) io.stdout(`ok        ${pkg.entry.alias}\n`);
+            else io.stdout(renderTextTable(["STATUS", "NAME"], loaded.map((pkg) => ["ok", pkg.entry.alias])));
             return 0;
         }
         case "uninstall": {
@@ -59,14 +65,19 @@ export async function runPackageCommand(command: PackageCommand, projectRoot: st
         }
         case "outdated": {
             const entries = await store.load();
-            if (entries.length === 0) io.stdout("No vendored packages.\n");
+            if (entries.length === 0) {
+                io.stdout("No vendored packages.\n");
+                return 0;
+            }
             let outdated = 0;
+            const rows: string[][] = [];
             for (const entry of entries) {
                 const fetched = await fetchPackageSource(entry.resolvedSource, projectRoot);
                 const changed = digest(fetched.bytes) !== entry.sourceSha256;
                 if (changed) outdated += 1;
-                io.stdout(`${changed ? "outdated" : "current "}  ${entry.alias}${changed ? `  ${entry.source}` : ""}\n`);
+                rows.push([changed ? "outdated" : "current", entry.alias, changed ? entry.source : ""]);
             }
+            io.stdout(renderTextTable(["STATUS", "NAME", "SOURCE"], rows));
             if (outdated > 0) io.stdout(`\nRun "nocuft package update" to reinstall ${outdated === 1 ? "it" : "them"}.\n`);
             return 0;
         }
@@ -88,6 +99,10 @@ export async function runPackageCommand(command: PackageCommand, projectRoot: st
             return 0;
         }
     }
+}
+
+function exportNames(artifact: PackageArtifact): string {
+    return artifact.functions.map((item) => item.name).join(", ");
 }
 
 function digest(bytes: Uint8Array): string {

@@ -1,4 +1,4 @@
-import { entities, events, item, line } from "@nocuft/diamondfire";
+import { entities, events, item, line } from "nocuft";
 
 export const join = events.player.join((event) => {
     entities.all().nearest(event.player.location(), 1).remove();

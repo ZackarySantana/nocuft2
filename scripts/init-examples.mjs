@@ -4,11 +4,11 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 /**
- * Register every runnable example with `nocuft local register`.
+ * Initialize every runnable example with `nocuft init`.
  *
  * The shared `examples` module prefix lets the in-game screen group these
- * projects under one namespace. Re-running replaces prior registrations by
- * default. Pass `--no-force` to preserve an existing registration.
+ * projects under one namespace. Re-running replaces conflicting definitions
+ * by default. Pass `--no-force` to preserve an existing definition.
  */
 
 const repositoryRoot = fileURLToPath(new URL("..", import.meta.url));
@@ -28,12 +28,12 @@ for (const argument of argumentsSet) {
 }
 
 if (argumentsSet.has("--help")) {
-    console.log(`Usage: npm run register:examples -- [options]
+    console.log(`Usage: npm run init:examples -- [options]
 
 Options:
-  --force       Replace existing registrations (default)
-  --no-force    Fail rather than replace an existing registration
-  --dry-run     Print registration commands without changing local state
+  --force       Replace conflicting definitions (default)
+  --no-force    Fail rather than replace a conflicting definition
+  --dry-run     Print init commands without changing project files
   --help        Show this help`);
     process.exit(0);
 }
@@ -57,7 +57,7 @@ if (!dryRun && !existsSync(executable)) {
 }
 
 let failed = 0;
-let registered = 0;
+let initialized = 0;
 
 for (const example of examples) {
     const entry = join(repositoryRoot, example.entry);
@@ -68,8 +68,7 @@ for (const example of examples) {
     }
 
     const args = [
-        "local",
-        "register",
+        "init",
         example.name,
         entry,
         "--module",
@@ -81,7 +80,7 @@ for (const example of examples) {
 
     if (dryRun) {
         console.log([executable, ...args].map(quoteArgument).join(" "));
-        registered += 1;
+        initialized += 1;
         continue;
     }
 
@@ -97,12 +96,12 @@ for (const example of examples) {
         failed += 1;
         continue;
     }
-    console.log(output || `Registered ${example.name}`);
-    registered += 1;
+    console.log(output || `Initialized ${example.name}`);
+    initialized += 1;
 }
 
 console.log(
-    `${dryRun ? "Prepared" : "Registered"} ${registered} example project${registered === 1 ? "" : "s"}.`,
+    `${dryRun ? "Prepared" : "Initialized"} ${initialized} example project${initialized === 1 ? "" : "s"}.`,
 );
 if (failed > 0) {
     process.exitCode = 1;

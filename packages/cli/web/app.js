@@ -34,6 +34,7 @@ let selectedTemplateId;
 let initialSelectionSettled = false;
 let idCounter = 0;
 let pinnedProjects = loadPinnedProjects();
+const openTemplateGroups = new Map();
 
 searchElement.addEventListener("input", renderProjects);
 scheduleDayRefresh();
@@ -109,7 +110,7 @@ function renderProjects() {
             section.classList.add("is-pinned");
         }
         const name = element("h3", "project-name");
-        name.append(sourceLink(project.sources?.[0], project.name, "project-link"));
+        name.textContent = project.name;
         name.id = uniqueId("project");
         section.setAttribute("aria-labelledby", name.id);
 
@@ -129,8 +130,56 @@ function renderProjects() {
             const list = element("div", "templates");
             list.setAttribute("role", "group");
             list.setAttribute("aria-label", `Templates in ${project.name}`);
-            for (const template of project.templates) {
+            for (const template of project.templates.filter(({ origin }) =>
+                origin?.kind !== "package" && origin?.kind !== "nocuft")) {
                 list.append(templateButton(template));
+            }
+
+            const packages = new Map();
+            for (const template of project.templates.filter(({ origin }) =>
+                origin?.kind === "package")) {
+                const group = packages.get(template.origin.alias) ?? [];
+                group.push(template);
+                packages.set(template.origin.alias, group);
+            }
+            if (packages.size > 0) {
+                const packageTemplates = [...packages.values()].flat();
+                const packageGroup = templateDisclosure(
+                    project,
+                    ["packages"],
+                    "Packages",
+                    packageTemplates,
+                    "template-group-packages",
+                    query,
+                );
+                for (const [alias, templates] of [...packages].sort(([left], [right]) =>
+                    left.localeCompare(right))) {
+                    const packageDisclosure = templateDisclosure(
+                        project,
+                        ["packages", alias],
+                        alias,
+                        templates,
+                        "template-package",
+                        query,
+                    );
+                    packageDisclosure.body.append(...templates.map(templateButton));
+                    packageGroup.body.append(packageDisclosure.details);
+                }
+                list.append(packageGroup.details);
+            }
+
+            const internalTemplates = project.templates.filter(({ origin }) => origin?.kind === "nocuft");
+            if (internalTemplates.length > 0) {
+                const internalGroup = templateDisclosure(
+                    project,
+                    ["internals"],
+                    "Nocuft internals",
+                    internalTemplates,
+                    "template-group-internal",
+                    query,
+                );
+                internalGroup.body.append(...internalTemplates.map(templateButton));
+                list.append(internalGroup.details);
             }
             section.append(list);
         } else {
@@ -152,6 +201,29 @@ function renderProjects() {
         }
         return section;
     }));
+}
+
+function templateDisclosure(project, path, label, templates, className, query) {
+    const key = JSON.stringify([project.name, ...path]);
+    const details = element("details", `template-group ${className}`);
+    const selectedInside = templates.some(({ id }) => id === selectedTemplateId);
+    details.open = query !== "" || (openTemplateGroups.has(key)
+        ? openTemplateGroups.get(key)
+        : selectedInside);
+
+    const summary = element("summary", "template-group-summary");
+    summary.append(
+        element("span", "template-group-name", label),
+        element("span", "template-group-count", `${templates.length} ${plural(templates.length, "template")}`),
+    );
+    const body = element("div", "template-group-items");
+    details.append(summary, body);
+    details.addEventListener("toggle", () => {
+        if (query === "") {
+            openTemplateGroups.set(key, details.open);
+        }
+    });
+    return { details, body };
 }
 
 function orderedProjects(query) {
@@ -297,12 +369,27 @@ function templateButton(template) {
         element("span", "template-kind", humanize(template.kind)),
     );
     button.addEventListener("click", () => {
-        selectedTemplateId = template.id;
-        initialSelectionSettled = true;
-        render();
-        viewerElement.focus();
+        selectTemplate(template);
     });
     return button;
+}
+
+function selectTemplate(template) {
+    selectedTemplateId = template.id;
+    initialSelectionSettled = true;
+    const project = snapshot.projects.find(({ templates }) =>
+        templates.some(({ id }) => id === template.id));
+    if (project && template.origin?.kind === "package") {
+        openTemplateGroups.set(JSON.stringify([project.name, "packages"]), true);
+        openTemplateGroups.set(
+            JSON.stringify([project.name, "packages", template.origin.alias]),
+            true,
+        );
+    } else if (project && template.origin?.kind === "nocuft") {
+        openTemplateGroups.set(JSON.stringify([project.name, "internals"]), true);
+    }
+    render();
+    viewerElement.focus();
 }
 
 function renderViewer(selected) {
@@ -333,7 +420,7 @@ function renderViewer(selected) {
         contents.push(panel);
     }
 
-    contents.push(codeLine(template));
+    contents.push(codeLine(project, template));
     viewerElement.replaceChildren(...contents);
 }
 
@@ -343,7 +430,7 @@ function documentHead(project, template) {
 
     const path = element("p", "doc-path");
     path.append(
-        sourceLink(project.sources?.[0], project.name),
+        document.createTextNode(project.name),
         separator("/"),
         document.createTextNode(project.module),
     );
@@ -368,26 +455,30 @@ function documentHead(project, template) {
         sourceList.append(element("span", "source-label", "Sources"));
         project.sources.forEach((source, index) => {
             if (index > 0) {
-                sourceList.append(separator("/"));
+                sourceList.append(separator("·"));
             }
-            sourceList.append(sourceLink(source, sourceName(source)));
+            sourceList.append(element("span", "source-path", source));
         });
         header.append(sourceList);
     }
     return header;
 }
 
-function codeLine(template) {
+function codeLine(project, template) {
     const code = element("ol", "code");
     code.setAttribute("role", "list");
     code.setAttribute("aria-label", `DiamondFire code for ${template.nativeName}`);
+    const functions = new Map(project.templates
+        .filter(({ kind }) => kind === "function")
+        .map((candidate) => [candidate.name, candidate]));
     let depth = 0;
     for (const [index, block] of template.blocks.entries()) {
         const bracket = bracketInfo(block);
         if (bracket?.direct === "close") {
             depth = Math.max(0, depth - 1);
         }
-        code.append(renderBlock(block, index, depth, bracket));
+        const functionTarget = block.block === "call_func" ? functions.get(block.data) : undefined;
+        code.append(renderBlock(block, index, depth, bracket, functionTarget));
         if (bracket?.direct === "open") {
             depth += 1;
         }
@@ -395,7 +486,7 @@ function codeLine(template) {
     return code;
 }
 
-function renderBlock(block, index, depth, bracket) {
+function renderBlock(block, index, depth, bracket, functionTarget) {
     const row = element("li", `block ${categoryClass(bracket ? "bracket" : block.block)}`);
     if (bracket) {
         row.classList.add("is-bracket");
@@ -406,7 +497,7 @@ function renderBlock(block, index, depth, bracket) {
     row.append(element("span", "block-index", String(index + 1)));
 
     const body = element("div", "block-body");
-    body.append(bracket ? bracketHead(bracket) : blockHead(block));
+    body.append(bracket ? bracketHead(bracket) : blockHead(block, functionTarget));
 
     const items = [...(block.args?.items ?? [])];
     const values = items
@@ -477,11 +568,21 @@ function slotLabel(slot) {
     return label;
 }
 
-function blockHead(block) {
+function blockHead(block, functionTarget) {
     const head = element("div", "block-head");
     head.append(element("span", "block-kind", humanize(block.block)));
     const title = block.action ?? block.data ?? block.block;
-    head.append(element("h3", "block-name", humanize(title)));
+    const name = element("h3", "block-name");
+    if (functionTarget === undefined) {
+        name.textContent = humanize(title);
+    } else {
+        const link = element("button", "block-name-link", humanize(title));
+        link.type = "button";
+        link.title = `Open function ${functionTarget.nativeName}`;
+        link.addEventListener("click", () => selectTemplate(functionTarget));
+        name.append(link);
+    }
+    head.append(name);
     if (block.target) {
         const target = element("span", "block-target");
         const arrow = element("span", "arrow", "→");
@@ -614,21 +715,6 @@ function separator(glyph) {
     const span = element("span", "sep", glyph);
     span.setAttribute("aria-hidden", "true");
     return span;
-}
-
-function sourceLink(path, label, className) {
-    if (!path) {
-        return document.createTextNode(label);
-    }
-    const link = element("a", className ?? "source-link", label);
-    link.href = `/api/source?${new URLSearchParams({ path })}`;
-    link.title = path;
-    return link;
-}
-
-function sourceName(path) {
-    const parts = path.replace(/\\/gu, "/").split("/").filter(Boolean);
-    return parts.slice(-2).join("/") || path;
 }
 
 function loadPinnedProjects() {

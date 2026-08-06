@@ -21,6 +21,7 @@
     "dependencies": {
         "@nocuft/compiler": "0.1.0",
         "@nocuft/deployment": "0.1.0",
+        "@nocuft/dfir": "0.1.0",
         "@nocuft/frontend-typescript": "0.1.0"
     },
     "devDependencies": {

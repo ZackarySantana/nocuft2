@@ -1,4 +1,4 @@
-import { entities, location, players } from "@nocuft/diamondfire";
+import { entities, location, players } from "nocuft";
 
 const origin = location(0, 64, 0);
 

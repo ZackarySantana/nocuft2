@@ -33,7 +33,8 @@ public final class Protocol {
     public enum Method {
         HELLO("hello"),
         BUNDLE_PUSH("bundle.push"),
-        OPEN("open");
+        OPEN("open"),
+        ITEM_CAPTURE("item.capture");
 
         private final String wire;
 
@@ -71,6 +72,7 @@ public final class Protocol {
         PROTOCOL_UNKNOWN_METHOD("protocol.unknown_method"),
         BUNDLE_INVALID("bundle.invalid"),
         BUNDLE_UNKNOWN_PROJECT("bundle.unknown_project"),
+        ITEM_CAPTURE_FAILED("item.capture_failed"),
         PLOT_NOT_CONNECTED("plot.not_connected"),
         PLOT_NOT_DEV("plot.not_dev"),
         PLOT_UNKNOWN_SIZE("plot.unknown_size"),

@@ -1,8 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { request } from "node:http";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import test from "node:test";
 import { startWebServer, type WebAssets } from "../web-server.js";
 import type { WebSnapshot } from "../web-state.js";
@@ -67,47 +64,6 @@ test("fails when the requested fixed port is already occupied", async () => {
         );
     } finally {
         await first.close();
-    }
-});
-
-test("serves only source files declared by the current build", async (t) => {
-    const directory = await mkdtemp(join(tmpdir(), "nocuft-web-source-"));
-    t.after(() => rm(directory, { recursive: true, force: true }));
-    const sourcePath = join(directory, "plot.ts");
-    const hiddenPath = join(directory, "hidden.ts");
-    await writeFile(sourcePath, "export function hello(): void {}\n");
-    await writeFile(hiddenPath, "secret\n");
-    const snapshot: WebSnapshot = {
-        revision: 1,
-        projects: [{
-            name: "hello",
-            module: "app.hello",
-            sources: [sourcePath],
-            modifiedAtMs: 100,
-            status: "ready",
-            stale: false,
-            durationMs: 1,
-            diagnostics: [],
-            templates: [],
-        }],
-    };
-    const server = await startWebServer({ port: 0, snapshot: () => snapshot, assets });
-    try {
-        const source = await fetch(
-            `${server.url}api/source?path=${encodeURIComponent(sourcePath)}`,
-        );
-        assert.equal(source.status, 200);
-        assert.equal(source.headers.get("content-type"), "application/octet-stream");
-        assert.equal(
-            source.headers.get("content-disposition"),
-            "attachment; filename=\"plot.ts\"; filename*=UTF-8''plot.ts",
-        );
-        assert.equal(await source.text(), "export function hello(): void {}\n");
-        assert.equal((await fetch(
-            `${server.url}api/source?path=${encodeURIComponent(hiddenPath)}`,
-        )).status, 404);
-    } finally {
-        await server.close();
     }
 });
 

@@ -1,7 +1,7 @@
 import { spawnSync } from "node:child_process";
 
 const buildWorkspaces = [
-    "@nocuft/diamondfire",
+    "nocuft",
     "@nocuft/dfir",
     "@nocuft/compiler",
     "@nocuft/frontend-typescript",
@@ -12,6 +12,7 @@ const buildWorkspaces = [
 
 const testWorkspaces = [
     "@nocuft/generator",
+    "@nocuft/dfir",
     "@nocuft/frontend-typescript",
     "@nocuft/compiler",
     "@nocuft/deployment",
@@ -22,6 +23,7 @@ const testWorkspaces = [
 const command = process.argv[2];
 if (command === "build") {
     runWorkspaces("run", "build", buildWorkspaces);
+    run("npm", ["run", "assemble", "--workspace=nocuft"]);
 } else if (command === "test") {
     run("npm", ["run", "build", "--workspace=@nocuft/client"]);
     runWorkspaces("test", undefined, testWorkspaces);

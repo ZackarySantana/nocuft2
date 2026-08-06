@@ -33,7 +33,7 @@ export async function runWeb(
     dependencies: Partial<WebDependencies> = {},
 ): Promise<number> {
     if (projects.length === 0) {
-        io.stderr("error[web.no_projects]: No projects are registered.\n");
+        io.stderr("error[web.no_projects]: No projects are tracked locally.\n");
         return 1;
     }
 

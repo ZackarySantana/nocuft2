@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { EmittedTemplate } from "@nocuft/compiler";
 import type { NocuftSession } from "@nocuft/deployment";
+import type { ProjectBuildTemplate } from "../build-project.js";
 import { runGui, type GuiDependencies, type GuiIo } from "../gui-command.js";
 
-const template: EmittedTemplate = {
+const template: ProjectBuildTemplate = {
     name: "hello",
     nativeName: "hello",
     kind: "function",
@@ -12,6 +12,7 @@ const template: EmittedTemplate = {
         blocks: [{ id: "block", block: "func", data: "hello", args: { items: [] } }],
     },
     json: "unused",
+    origin: { kind: "host" },
 };
 
 test("builds, sends, opens, watches, and stops cleanly", async () => {

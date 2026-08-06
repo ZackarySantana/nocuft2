@@ -5,6 +5,7 @@ import {
     openNocuftSession,
     type NocuftSession,
     type NocuftSessionOptions,
+    type NocuftInboundRequest,
     type NocuftStatus,
 } from "@nocuft/deployment";
 import type { ProjectIdentity } from "./project-identity.js";
@@ -28,6 +29,7 @@ export interface GuiOptions {
     debounceMs: number;
     open: boolean;
     concurrency?: number;
+    onRequest?: (request: NocuftInboundRequest) => Promise<Record<string, unknown>>;
 }
 
 export interface GuiDependencies extends LiveProjectDependencies {
@@ -47,7 +49,7 @@ export async function runGui(
     dependencies: Partial<GuiDependencies> = {},
 ): Promise<number> {
     if (projects.length === 0) {
-        io.stderr("error[gui.no_projects]: No projects are registered.\n");
+        io.stderr("error[gui.no_projects]: No projects are tracked locally.\n");
         return 1;
     }
 
@@ -65,6 +67,7 @@ export async function runGui(
                 clientClosedReason = reason;
                 markClientGone();
             },
+            ...(options.onRequest === undefined ? {} : { onRequest: options.onRequest }),
         });
     } catch (error: unknown) {
         io.stderr(`error[${errorCode(error)}]: ${messageOf(error)}\n`);

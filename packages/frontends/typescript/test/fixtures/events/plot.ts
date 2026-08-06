@@ -1,4 +1,4 @@
-import { events, item, location, players } from "@nocuft/diamondfire";
+import { events, item, location, players } from "nocuft";
 
 const lobby = location(0, 65, 0);
 

@@ -2,10 +2,7 @@
     "name": "@nocuft/example-hello",
     "private": true,
     "type": "module",
-    "dependencies": {
-        "@nocuft/diamondfire": "0.1.0"
-    },
     "devDependencies": {
-        "typescript": "latest"
+        "nocuft": "0.1.0"
     }
 }

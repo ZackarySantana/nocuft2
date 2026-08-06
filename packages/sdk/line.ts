@@ -1,4 +1,4 @@
-import type { Location } from "./values/index";
+import type { AnyValueInput, Dictionary, Item, List, Location } from "./values/index";
 
 export interface LineLocationVariable extends Location {
     shift(x: number, y: number, z: number): void;
@@ -26,6 +26,9 @@ export interface LineVariables {
     number(value: number): LineNumberVariable;
     string(value: string): LineStringVariable;
     boolean(value: boolean): LineBooleanVariable;
+    item(value: Item): Item;
+    list<T extends AnyValueInput>(value: List<T>): List<T>;
+    dictionary<V extends AnyValueInput>(value: Dictionary<V>): Dictionary<V>;
 }
 
 export declare const line: LineVariables;

@@ -2,32 +2,32 @@ import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import {
-    createPackageArtifacts,
+    createPackageArtifact,
     lowerHighModule,
-    parsePackageExports,
-    parsePackageIr,
-    type PackageExportsManifest,
+    parsePackageArtifact,
+    type PackageArtifact,
     type PackageExportParameter,
-    type PackageIrArtifact,
 } from "@nocuft/compiler";
+import { visitValueType } from "@nocuft/dfir";
 import { analyzeTypeScriptProject } from "@nocuft/frontend-typescript";
 import { findTsconfig } from "./build-project.js";
 import { fetchPackageSource } from "./package-fetch.js";
 import {
     createPackageStore,
     PACKAGE_DIRECTORY,
-    readJson,
     type InstalledPackage,
     validPackageAlias,
 } from "./package-store.js";
 
-export const PACKAGE_TOOLCHAIN = "nocuft-cli@0.1.0;package-ir@1;package-exports@1";
+export const PACKAGE_TOOLCHAIN = "nocuft-cli@0.1.0;package@2";
+export const PACKAGE_ARTIFACT_FILE = "package.dfir.json";
+export const PACKAGE_FACADE_FILE = "index.d.ts";
 
 export interface LoadedPackage {
     entry: InstalledPackage;
-    artifact: PackageIrArtifact;
-    exports: PackageExportsManifest;
-    paths: string[];
+    artifact: PackageArtifact;
+    sourcePaths: string[];
+    facadePath: string;
 }
 
 export async function installPackage(
@@ -35,7 +35,7 @@ export async function installPackage(
     alias: string,
     source: string,
     options: { replace?: boolean; baseDirectory?: string; sourceLabel?: string } = {},
-): Promise<InstalledPackage> {
+): Promise<LoadedPackage> {
     if (!validPackageAlias(alias)) {
         throw new Error("Package names must be 1 to 16 lowercase letters or digits, start with a letter, and not be reserved");
     }
@@ -62,13 +62,10 @@ export async function installPackage(
             tsconfigPath: await findTsconfig(projectRoot),
             packageMode: true,
         });
-        const generated = createPackageArtifacts(alias, lowerHighModule(analysis.module));
-        const artifactText = json(generated.artifact);
-        const exportsText = json(generated.exports);
-        const stubText = renderTypeScriptStub(alias, generated.exports);
-        await writeFile(join(staging, "module.dfir.json"), artifactText, "utf8");
-        await writeFile(join(staging, "exports.json"), exportsText, "utf8");
-        await writeFile(join(staging, "index.ts"), stubText, "utf8");
+        const artifact = createPackageArtifact(alias, lowerHighModule(analysis.module));
+        const artifactText = json(artifact);
+        await writeFile(join(staging, PACKAGE_ARTIFACT_FILE), artifactText, "utf8");
+        await writeFile(join(staging, PACKAGE_FACADE_FILE), renderPackageFacade(artifact), "utf8");
 
         const entry: InstalledPackage = {
             alias,
@@ -77,10 +74,7 @@ export async function installPackage(
             language: "typescript",
             sourceSha256: digest(fetched.bytes),
             artifactSha256: digest(artifactText),
-            exportsSha256: digest(exportsText),
-            stubSha256: digest(stubText),
             toolchain: PACKAGE_TOOLCHAIN,
-            exports: generated.exports.functions.map((item) => item.name),
         };
         const finalPath = join(packageRoot, alias);
         const backup = join(packageRoot, `.backup-${alias}-${randomUUID()}`);
@@ -94,7 +88,7 @@ export async function installPackage(
             throw error;
         }
         if (previous) await rm(backup, { recursive: true, force: true });
-        return entry;
+        return { entry, artifact, ...packagePaths(finalPath) };
     } finally {
         await rm(staging, { recursive: true, force: true });
     }
@@ -103,80 +97,67 @@ export async function installPackage(
 export async function loadVerifiedPackages(projectRoot: string): Promise<LoadedPackage[]> {
     const entries = await createPackageStore(projectRoot).load();
     return await Promise.all(entries.map(async (entry) => {
-        const root = join(projectRoot, PACKAGE_DIRECTORY, entry.alias);
-        const paths = [
-            join(root, "src", "source.ts"),
-            join(root, "module.dfir.json"),
-            join(root, "exports.json"),
-            join(root, "index.ts"),
-        ];
-        const [source, artifactBytes, exportBytes, stub] = await Promise.all(paths.map((path) => readFile(path)));
+        const paths = packagePaths(join(projectRoot, PACKAGE_DIRECTORY, entry.alias));
+        const [source, artifactBytes] = await Promise.all(paths.sourcePaths.map((path) => readFile(path)));
         compareDigest(entry.alias, "source", source, entry.sourceSha256);
         compareDigest(entry.alias, "artifact", artifactBytes, entry.artifactSha256);
-        compareDigest(entry.alias, "exports", exportBytes, entry.exportsSha256);
-        compareDigest(entry.alias, "stub", stub, entry.stubSha256);
         if (entry.toolchain !== PACKAGE_TOOLCHAIN) {
-            throw new Error(`Package ${entry.alias} uses incompatible toolchain ${entry.toolchain}`);
+            throw new Error(
+                `Package ${entry.alias} uses incompatible toolchain ${entry.toolchain}; ` +
+                `run nocuft package update ${entry.alias} or reinstall it`,
+            );
         }
-        const artifact = parsePackageIr(await readJson(paths[1]));
-        const exports = parsePackageExports(await readJson(paths[2]));
-        if (artifact.alias !== entry.alias || exports.alias !== entry.alias
-            || exports.functions.map((item) => item.name).join("\0") !== entry.exports.join("\0")) {
-            throw new Error(`Package ${entry.alias} artifact, exports, and lockfile disagree`);
-        }
-        const artifactFunctions = new Set(artifact.module.templates.map((template) => template.name));
-        if (exports.functions.some((item) => !artifactFunctions.has(item.nativeName))) {
-            throw new Error(`Package ${entry.alias} exports a function missing from its artifact`);
-        }
-        for (const exported of exports.functions) {
-            const template = artifact.module.templates.find((candidate) => candidate.kind === "function" && candidate.name === exported.nativeName);
-            if (!template || template.kind !== "function"
-                || JSON.stringify(template.parameters ?? []) !== JSON.stringify(exported.parameters)) {
-                throw new Error(`Package ${entry.alias} export signature disagrees with its artifact`);
-            }
-        }
-        if (new TextDecoder().decode(stub) !== renderTypeScriptStub(entry.alias, exports)) {
-            throw new Error(`Package ${entry.alias} stub disagrees with exports.json`);
-        }
-        return { entry, artifact, exports, paths };
+        const artifact = parsePackageArtifact(JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(artifactBytes)));
+        await regenerateFacade(paths.facadePath, renderPackageFacade(artifact));
+        return { entry, artifact, ...paths };
     }));
 }
 
-export function renderTypeScriptStub(alias: string, manifest: PackageExportsManifest): string {
+export function renderPackageFacade(artifact: PackageArtifact): string {
     const importedTypes = new Set<string>();
-    for (const entry of manifest.functions) {
+    for (const entry of artifact.functions) {
         for (const parameter of entry.parameters) {
-            const type = parameter.kind === "target"
-                ? "PlayerTarget"
-                : sourceType(parameter.type);
-            if (type !== "string" && type !== "number" && type !== "boolean") {
-                importedTypes.add(type);
-            }
+            if (parameter.kind === "target") importedTypes.add("PlayerTarget");
+            else collectSourceTypes(parameter.type, importedTypes);
         }
     }
     const imports = [...importedTypes].toSorted().map((type) => `type ${type}`);
-    const lines = [
-        "// Generated by nocuft. Do not edit.",
-        `import { ${["packageFunction", ...imports].join(", ")} } from \"@nocuft/diamondfire\";`,
-        "",
-    ];
-    for (const entry of manifest.functions) {
-        const parameters = entry.parameters.map((parameter) =>
-            `${parameter.name}: ${parameter.kind === "target" ? "PlayerTarget" : sourceType(parameter.type)}`,
-        );
-        lines.push(`export function ${entry.name}(${parameters.join(", ")}): void {`);
-        for (const parameter of parameters.map((value) => value.split(":", 1)[0])) {
-            lines.push(`    void ${parameter};`);
-        }
-        lines.push(`    return packageFunction(${JSON.stringify(alias)}, ${JSON.stringify(entry.name)});`);
-        lines.push("}", "");
+    const lines = ["// Generated by nocuft. Do not edit."];
+    if (imports.length > 0) lines.push(`import { ${imports.join(", ")} } from "nocuft";`);
+    lines.push("");
+    for (const entry of artifact.functions) {
+        const parameters = entry.parameters.map((parameter) => {
+            if (parameter.kind === "target") return `${parameter.name}: PlayerTarget`;
+            if (parameter.rest === true) {
+                return `...${parameter.name}: ${sourceType(parameter.type.elementType)}[]`;
+            }
+            return `${parameter.name}: ${sourceType(parameter.type)}`;
+        });
+        lines.push(`export declare function ${entry.name}(${parameters.join(", ")}): void;`);
     }
     return `${lines.join("\n").trimEnd()}\n`;
+}
+
+function packagePaths(root: string): { sourcePaths: string[]; facadePath: string } {
+    return {
+        sourcePaths: [join(root, "src", "source.ts"), join(root, PACKAGE_ARTIFACT_FILE)],
+        facadePath: join(root, PACKAGE_FACADE_FILE),
+    };
+}
+
+async function regenerateFacade(path: string, text: string): Promise<void> {
+    const current = await readFile(path, "utf8").catch(() => undefined);
+    if (current !== text) await writeFile(path, text, "utf8");
 }
 
 function sourceType(
     type: Extract<PackageExportParameter, { kind: "value" }>["type"],
 ): string {
+    if (typeof type === "object") {
+        return type.kind === "list"
+            ? `List<${sourceType(type.elementType)}>`
+            : `Dictionary<${sourceType(type.valueType)}>`;
+    }
     switch (type) {
         case "text": return "string";
         case "number": return "number";
@@ -187,6 +168,20 @@ function sourceType(
         case "sound": return "SoundInput";
         case "any": return "AnyValueInput";
     }
+}
+
+function collectSourceTypes(
+    type: Extract<PackageExportParameter, { kind: "value" }>["type"],
+    result: Set<string>,
+): void {
+    visitValueType(type, (node) => {
+        if (typeof node === "object") {
+            result.add(node.kind === "list" ? "List" : "Dictionary");
+            return;
+        }
+        const source = sourceType(node);
+        if (!["string", "number", "boolean"].includes(source)) result.add(source);
+    });
 }
 
 function json(value: unknown): string {

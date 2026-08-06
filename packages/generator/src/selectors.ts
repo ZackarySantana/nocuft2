@@ -1,4 +1,7 @@
 import type { RawAction } from "./actiondump.js";
+import type { StructuralActionBinding, StructuralBindings } from "./structures.js";
+
+type SelectorArgumentType = "any" | "number" | "text" | "component" | "location";
 
 export interface SelectorBinding {
     id: string;
@@ -8,9 +11,10 @@ export interface SelectorBinding {
     resultType: "player" | "entity";
     native: {
         action: string;
+        subAction?: string;
         arguments: Array<{
             index: number;
-            type: "number" | "text" | "component" | "location";
+            type: SelectorArgumentType;
             cardinality: "single" | "plural";
             optional: boolean;
         }>;
@@ -52,17 +56,22 @@ const policy = {
     AllEntities: { owner: "entities", method: "all", kind: "source", resultType: "entity" },
     FilterRandom: { owner: "selection", method: "random", kind: "filter", resultType: "entity" },
     FilterDistance: { owner: "selection", method: "nearest", kind: "filter", resultType: "entity" },
+    FilterCondition: { owner: "selection", method: "where", kind: "filter", resultType: "entity" },
     EventTarget: { owner: "event", method: "eventTarget", kind: "source", resultType: "entity" },
 } as const satisfies Record<string, SelectorPolicy>;
 
 const valueTypes = {
+    ANY_TYPE: "any",
     NUMBER: "number",
     TEXT: "text",
     COMPONENT: "component",
     LOCATION: "location",
 } as const;
 
-export function normalizeSelectors(actions: readonly RawAction[]): SelectorBinding[] {
+export function normalizeSelectors(
+    actions: readonly RawAction[],
+    structuralBindings: StructuralBindings,
+): SelectorBinding[] {
     return Object.entries(policy).map(([name, entry]) => {
         const action = actions.find(
             (candidate) =>
@@ -71,6 +80,13 @@ export function normalizeSelectors(actions: readonly RawAction[]): SelectorBindi
                 candidate.legacyReplacement === undefined,
         );
         if (!action) throw new Error(`Missing current SELECT OBJECT / ${name}`);
+        if (name === "FilterCondition") {
+            return normalizeConditionSelector(
+                action,
+                entry,
+                structuralBindings.ifVariable["="],
+            );
+        }
         const selectedIndexes = "argumentIndexes" in entry
             ? new Set<number>(entry.argumentIndexes)
             : undefined;
@@ -107,6 +123,56 @@ export function normalizeSelectors(actions: readonly RawAction[]): SelectorBindi
             },
         };
     });
+}
+
+function normalizeConditionSelector(
+    action: RawAction,
+    entry: SelectorPolicy,
+    condition: StructuralActionBinding,
+): SelectorBinding {
+    if (!action.subActionBlocks?.includes(condition.native.block)) {
+        throw new Error(
+            `SELECT OBJECT / ${action.name} does not allow ${condition.native.block}`,
+        );
+    }
+    return {
+        id: `select.${action.name}`,
+        owner: entry.owner,
+        method: entry.method,
+        kind: entry.kind,
+        resultType: entry.resultType,
+        native: {
+            action: action.subAction.trim(),
+            subAction: condition.native.action,
+            arguments: condition.inputs.map((input) => {
+                if (input.acceptedTypes.length !== 1) {
+                    throw new Error(
+                        `IF VARIABLE / ${condition.native.action} argument ${input.native.index} does not have one accepted type`,
+                    );
+                }
+                const type = input.acceptedTypes[0] as SelectorArgumentType;
+                if (!["any", "number", "text", "component", "location"].includes(type)) {
+                    throw new Error(
+                        `Unsupported selector condition argument type ${type}`,
+                    );
+                }
+                return {
+                    index: input.native.index,
+                    type,
+                    cardinality: input.cardinality,
+                    optional: input.cardinality === "single"
+                        ? input.optional
+                        : input.minimumLength === 0,
+                };
+            }),
+            tags: condition.tags.map((tag) => ({
+                name: tag.native.name,
+                slot: tag.native.slot,
+                defaultOption: tag.native.options[tag.defaultOption],
+                options: tag.options.map((option) => tag.native.options[option]),
+            })),
+        },
+    };
 }
 
 export function renderSelectorBindings(selectors: readonly SelectorBinding[]): string {

@@ -1,4 +1,4 @@
-import { events, line, location } from "@nocuft/diamondfire";
+import { events, line, location } from "nocuft";
 
 export const startup = events.plot.startup(() => {
     const destination = line.location(location(0, 64, 0));

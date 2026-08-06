@@ -1,4 +1,4 @@
-import { entities } from "@nocuft/diamondfire";
+import { entities } from "nocuft";
 
 export function removeEntities(): void {
     entities.all().remove();

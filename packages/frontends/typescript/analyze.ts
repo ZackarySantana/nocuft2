@@ -5,6 +5,7 @@ import type {
     HighExpression,
     HighEventEntityRole,
     HighEventFieldType,
+    HighDictionaryGetDeclaration,
     HighFunction,
     HighProcess,
     HighIntrinsicStatement,
@@ -14,7 +15,9 @@ import type {
     HighSelectionExpression,
     HighTemplate,
     HighValueParameter,
-    FunctionValueType,
+    DictionaryValueType,
+    ListValueType,
+    ValueType,
 } from "@nocuft/dfir";
 import { resolve } from "node:path";
 import * as ts from "typescript/unstable/ast";
@@ -33,6 +36,8 @@ import { processBindings } from "./generated/process-bindings.js";
 import { playerIntrinsics } from "./generated/player-intrinsics.js";
 import { selectorBindings } from "./generated/selector-bindings.js";
 import { targetGameValues } from "./generated/game-value-bindings.js";
+import { itemTransformBindings } from "./generated/item-transform-bindings.js";
+import { structuralBindings } from "./generated/structural-bindings.js";
 
 export interface AnalyzeTypeScriptOptions {
     tsconfigPath: string;
@@ -55,6 +60,7 @@ export interface PackageImport {
 export interface TypeScriptProjectAnalysis {
     module: HighModule;
     sourceFiles: string[];
+    synthesizedTemplateNames: string[];
 }
 
 export class TypeScriptAnalysisError extends Error {
@@ -100,6 +106,8 @@ export function analyzeTypeScriptProject(
             if (options.packageMode) {
                 validatePackageImports(sourceFile);
             }
+            rejectUserFunctionSpreads(sourceFile, project.checker);
+            rejectInvalidDictionaryConstructors(sourceFile, project.checker);
 
             const sourceFiles = project.program
                 .getSourceFileNames()
@@ -123,6 +131,23 @@ export function analyzeTypeScriptProject(
             const functions = sourceFile.statements.filter(ts.isFunctionDeclaration)
                 .filter((statement) => statement.name && statement.body);
             const localFunctions = new Map<number, Callable>();
+            const synthesis: SynthesisContext = {
+                functions: [],
+                occupiedNames: new Set(
+                    sourceFile.statements.flatMap((statement) => {
+                        if (ts.isFunctionDeclaration(statement) && statement.name) {
+                            return [statement.name.text];
+                        }
+                        if (ts.isVariableStatement(statement)) {
+                            return statement.declarationList.declarations.flatMap((declaration) =>
+                                ts.isIdentifier(declaration.name) ? [declaration.name.text] : [],
+                            );
+                        }
+                        return [];
+                    }),
+                ),
+                nextHelper: 1,
+            };
             for (const declaration of functions) {
                 const signature = analyzeFunctionSignature(declaration, project.checker);
                 const symbol = declaration.name
@@ -138,7 +163,8 @@ export function analyzeTypeScriptProject(
             const packageFunctions = createPackageFunctionMap(options.packages ?? []);
             const processRegistrations = new Map<ts.VariableDeclaration, ProcessRegistration>();
             const localProcesses = new Map<number, Callable>();
-            const plotVariables = new Map<number, PlotVariableBinding>();
+            const variables = new Map<number, StoredVariableBinding>();
+            const projectSources = new Set(sourceFiles);
             for (const statement of sourceFile.statements) {
                 if (!ts.isVariableStatement(statement)) continue;
                 for (const declaration of statement.declarationList.declarations) {
@@ -155,14 +181,41 @@ export function analyzeTypeScriptProject(
                             parameters: registration.parameters,
                         });
                     }
-                    const variable = analyzePlotVariableDeclaration(declaration, project.checker);
-                    if (variable && symbol) plotVariables.set(symbol.id, variable);
+                    const variable = analyzeStoredVariableDeclaration(declaration, project.checker);
+                    if (variable && symbol) variables.set(symbol.id, variable);
                 }
             }
+            const pendingFunctions: Array<{
+                declaration: ts.FunctionDeclaration;
+                callable: Callable;
+            }> = [];
+            const resolveFunction = (symbol: TypeScriptSymbol): Callable | undefined => {
+                const existing = localFunctions.get(symbol.id);
+                if (existing) return existing;
+                const declaration = symbol.declarations
+                    ?.map((candidate) => candidate.resolve())
+                    .find((candidate): candidate is ts.FunctionDeclaration =>
+                        candidate !== undefined
+                        && ts.isFunctionDeclaration(candidate)
+                        && candidate.name !== undefined
+                        && candidate.body !== undefined
+                        && ts.isSourceFile(candidate.parent)
+                        && projectSources.has(resolve(candidate.getSourceFile().fileName)),
+                    );
+                if (!declaration) return undefined;
+                const signature = analyzeFunctionSignature(declaration, project.checker);
+                const callable = {
+                    name: allocateHelperName(synthesis, "imported"),
+                    parameters: signature.parameters,
+                };
+                localFunctions.set(symbol.id, callable);
+                pendingFunctions.push({ declaration, callable });
+                return callable;
+            };
             const templates: HighTemplate[] = sourceFile.statements.flatMap<HighTemplate>((statement) => {
                 if (ts.isFunctionDeclaration(statement)) {
                     return statement.name && statement.body
-                        ? [analyzeFunction(statement, project.checker, localFunctions, packageFunctions, localProcesses, plotVariables)]
+                        ? [analyzeFunction(statement, project.checker, localFunctions, resolveFunction, packageFunctions, localProcesses, variables, synthesis)]
                         : [];
                 }
                 if (ts.isVariableStatement(statement)) {
@@ -171,16 +224,18 @@ export function analyzeTypeScriptProject(
                             const symbol = ts.isIdentifier(declaration.name)
                                 ? project.checker.getSymbolAtLocation(declaration.name)
                                 : undefined;
-                            if (symbol && plotVariables.has(symbol.id)) return [];
+                            if (symbol && variables.has(symbol.id)) return [];
                             const registration = processRegistrations.get(declaration);
                             return registration
                                 ? [analyzeProcessRegistration(
                                       registration,
                                       project.checker,
                                       localFunctions,
+                                      resolveFunction,
                                        packageFunctions,
                                        localProcesses,
-                                       plotVariables,
+                                       variables,
+                                       synthesis,
                                        isExported(statement),
                                   )]
                                 : isExported(statement)
@@ -188,9 +243,11 @@ export function analyzeTypeScriptProject(
                                       declaration,
                                       project.checker,
                                       localFunctions,
+                                      resolveFunction,
                                        packageFunctions,
                                        localProcesses,
-                                       plotVariables,
+                                       variables,
+                                       synthesis,
                                    )]
                                   : [];
                         },
@@ -198,13 +255,43 @@ export function analyzeTypeScriptProject(
                 }
                 return [];
             });
+            const importedFunctions: HighFunction[] = [];
+            for (let index = 0; index < pendingFunctions.length; index += 1) {
+                const pending = pendingFunctions[index];
+                importedFunctions.push(analyzeFunction(
+                    pending.declaration,
+                    project.checker,
+                    localFunctions,
+                    resolveFunction,
+                    packageFunctions,
+                    localProcesses,
+                    variables,
+                    synthesis,
+                    pending.callable.name,
+                    false,
+                ));
+            }
+            const importedPaths = [...new Set(pendingFunctions.map(({ declaration }) =>
+                resolve(declaration.getSourceFile().fileName)))];
+            const importedDiagnostics = importedPaths.flatMap((path) => [
+                ...project.program.getSyntacticDiagnostics(path),
+                ...project.program.getBindDiagnostics(path),
+                ...project.program.getSemanticDiagnostics(path),
+            ]);
+            if (importedDiagnostics.length > 0) {
+                throw new TypeScriptAnalysisError(
+                    formatDiagnostics(importedDiagnostics),
+                    sourceFiles,
+                );
+            }
 
             return {
                 module: {
                     kind: "module",
-                    templates,
+                    templates: [...templates, ...importedFunctions, ...synthesis.functions],
                 },
                 sourceFiles,
+                synthesizedTemplateNames: synthesis.functions.map(({ name }) => name),
             };
         } finally {
             snapshot.dispose();
@@ -226,10 +313,45 @@ function validatePackageImports(sourceFile: ts.SourceFile): void {
             && ts.isStringLiteralLikeNode(statement.moduleReference.expression)) {
             specifier = statement.moduleReference.expression.text;
         }
-        if (specifier !== undefined && specifier !== "@nocuft/diamondfire") {
-            throw unsupported(statement, `package import; only @nocuft/diamondfire is allowed, found ${specifier}`);
+        if (specifier !== undefined && specifier !== "nocuft") {
+            throw unsupported(statement, `package import; only nocuft is allowed, found ${specifier}`);
         }
     }
+}
+
+function rejectUserFunctionSpreads(sourceFile: ts.SourceFile, checker: Checker): void {
+    const visit = (node: ts.Node): void => {
+        if (ts.isCallExpression(node) && ts.isIdentifier(node.expression)) {
+            const symbol = resolveAliasedSymbol(checker.getSymbolAtLocation(node.expression), checker);
+            const userFunction = symbol !== undefined
+                && (symbol.flags & SymbolFlags.Function) !== 0
+                && symbol.declarations?.some((declaration) =>
+                    !resolve(declaration.path).replaceAll("\\", "/").includes("/node_modules/")) === true;
+            if (userFunction) {
+                const spread = node.arguments.find(ts.isSpreadElement);
+                if (spread) {
+                    throw unsupported(
+                        spread,
+                        "dynamic List spread in a user function call; pass rest arguments explicitly",
+                    );
+                }
+            }
+        }
+        node.forEachChild(visit);
+    };
+    visit(sourceFile);
+}
+
+function rejectInvalidDictionaryConstructors(sourceFile: ts.SourceFile, checker: Checker): void {
+    const visit = (node: ts.Node): void => {
+        if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) &&
+            isSdkSymbol(checker.getSymbolAtLocation(node.expression), "dictionary", "/values/index.d.ts", checker)) {
+            const form = dictionaryConstructorForm(node);
+            if (form.kind === "invalid") throw unsupported(node, form.reason);
+        }
+        node.forEachChild(visit);
+    };
+    visit(sourceFile);
 }
 
 function formatDiagnostics(diagnostics: readonly Diagnostic[]): string {
@@ -256,9 +378,13 @@ function analyzeFunction(
     declaration: ts.FunctionDeclaration,
     checker: Checker,
     localFunctions: ReadonlyMap<number, Callable>,
+    resolveFunction: (symbol: TypeScriptSymbol) => Callable | undefined,
     packageFunctions: ReadonlyMap<string, Callable>,
     localProcesses: ReadonlyMap<number, Callable>,
-    plotVariables: ReadonlyMap<number, PlotVariableBinding>,
+    variables: ReadonlyMap<number, StoredVariableBinding>,
+    synthesis: SynthesisContext,
+    name?: string,
+    exported = isExported(declaration),
 ): HighFunction {
     if (!declaration.name || !declaration.body) {
         throw new Error("Exported functions must have a name and body");
@@ -280,18 +406,21 @@ function analyzeFunction(
     }
 
     const body = analyzeBody(declaration.body, checker, undefined, {}, false, undefined, {
+        templateKind: "function",
         parameters,
         playerTargetSymbol,
         localFunctions,
+        resolveFunction,
         packageFunctions,
         localProcesses,
-        plotVariables,
+        variables,
+        synthesis,
     });
 
     return {
         kind: "function",
-        name: signature.name,
-        ...(!isExported(declaration) ? { exported: false } : {}),
+        name: name ?? signature.name,
+        ...(!exported ? { exported: false } : {}),
         ...(signature.parameters.length > 0 ? { parameters: signature.parameters } : {}),
         body,
     };
@@ -307,16 +436,48 @@ interface Callable {
     parameters: readonly HighParameter[];
 }
 
-interface PlotVariableBinding {
+interface SynthesisContext {
+    functions: HighFunction[];
+    occupiedNames: Set<string>;
+    nextHelper: number;
+}
+
+function allocateHelperName(context: SynthesisContext, purpose: string): string {
+    let name: string;
+    do {
+        name = `__nocuft_${purpose}_${context.nextHelper++}`;
+    } while (context.occupiedNames.has(name));
+    context.occupiedNames.add(name);
+    return name;
+}
+
+interface StoredVariableBinding {
+    owner: "plot" | "player";
     name: string;
-    valueType: "number" | "text" | "boolean";
+    scope: "unsaved" | "saved";
+    valueType: ValueType;
     enumValues?: readonly string[];
 }
 
-function analyzePlotVariableDeclaration(
+function storedVariableBinding(
+    symbol: TypeScriptSymbol | undefined,
+    checker: Checker,
+    variables: ReadonlyMap<number, StoredVariableBinding>,
+): StoredVariableBinding | undefined {
+    const resolved = resolveAliasedSymbol(symbol, checker);
+    if (!resolved) return undefined;
+    const registered = variables.get(resolved.id);
+    if (registered) return registered;
+    const declaration = resolved.valueDeclaration?.resolve();
+    return declaration && ts.isVariableDeclaration(declaration)
+        ? analyzeStoredVariableDeclaration(declaration, checker)
+        : undefined;
+}
+
+function analyzeStoredVariableDeclaration(
     declaration: ts.VariableDeclaration,
     checker: Checker,
-): PlotVariableBinding | undefined {
+): StoredVariableBinding | undefined {
     if (
         !ts.isIdentifier(declaration.name) ||
         !declaration.initializer ||
@@ -329,20 +490,21 @@ function analyzePlotVariableDeclaration(
     const factory = callExpression.expression;
     if (
         !ts.isPropertyAccessExpression(factory) ||
-        factory.name.text !== "game" ||
+        !["game", "saved"].includes(factory.name.text) ||
         !ts.isPropertyAccessExpression(factory.expression) ||
         factory.expression.name.text !== "var" ||
-        !ts.isIdentifier(factory.expression.expression) ||
-        !isSdkSymbol(
-            checker.getSymbolAtLocation(factory.expression.expression),
-            "plot",
-            "/plot.d.ts",
-            checker,
-        )
+        !ts.isIdentifier(factory.expression.expression)
     ) return undefined;
+    const root = factory.expression.expression;
+    const owner = isSdkSymbol(checker.getSymbolAtLocation(root), "plot", "/plot.d.ts", checker)
+        ? "plot"
+        : isSdkSymbol(checker.getSymbolAtLocation(root), "players", "/players.d.ts", checker)
+          ? "player"
+          : undefined;
+    if (!owner) return undefined;
     const method = methodNode.text;
     if (
-        !["string", "number", "boolean", "enum"].includes(method) ||
+        !["string", "number", "boolean", "list", "dictionary", "enum"].includes(method) ||
         !isSdkSymbol(
             checker.getSymbolAtLocation(methodNode),
             method,
@@ -350,28 +512,45 @@ function analyzePlotVariableDeclaration(
             checker,
         )
     ) {
-        throw unsupported(call, "plot game variable factory");
+        throw unsupported(call, `${owner} variable factory`);
     }
     if (
         call.arguments.length < (method === "enum" ? 2 : 1) ||
         call.arguments.some((argument) => !ts.isStringLiteralLikeNode(argument))
     ) {
-        throw unsupported(call, "explicitly named plot game variable");
+        throw unsupported(call, "explicitly named stored variable");
     }
     if (method !== "enum" && call.arguments.length !== 1) {
-        throw unsupported(call, "plot game variable factory arguments");
+        throw unsupported(call, "stored variable factory arguments");
     }
     const name = stringLiteralText(call.arguments[0]);
     if (!name) throw unsupported(call.arguments[0], "non-empty plot variable name");
+    if (name.startsWith("%uuid ")) {
+        throw unsupported(call.arguments[0], "stored variable name not beginning with reserved %uuid prefix");
+    }
     const enumValues = method === "enum"
         ? call.arguments.slice(1).map(stringLiteralText)
         : undefined;
     if (enumValues && (enumValues.some((value) => !value) || new Set(enumValues).size !== enumValues.length)) {
         throw unsupported(call, "unique non-empty enum values");
     }
+    const listType = method === "list"
+        ? listValueTypeArgument(call.typeArguments?.[0], checker)
+        : undefined;
+    if (method === "list" && !listType) {
+        throw unsupported(call, "typed stored list variable");
+    }
+    const dictionaryType = method === "dictionary"
+        ? dictionaryValueTypeArgument(call.typeArguments?.[0], checker)
+        : undefined;
+    if (method === "dictionary" && !dictionaryType) {
+        throw unsupported(call, "typed stored dictionary variable");
+    }
     return {
+        owner,
         name,
-        valueType: method === "number" ? "number" : method === "boolean" ? "boolean" : "text",
+        scope: factory.name.text === "saved" ? "saved" : "unsaved",
+        valueType: listType ?? dictionaryType ?? (method === "number" ? "number" : method === "boolean" ? "boolean" : "text"),
         ...(enumValues ? { enumValues } : {}),
     };
 }
@@ -402,9 +581,25 @@ function analyzeFunctionSignature(
     }
     const parameters: HighParameter[] = [];
     let hasPlayerTarget = false;
-    for (const parameter of declaration.parameters) {
-        if (!ts.isIdentifier(parameter.name) || parameter.questionToken || parameter.dotDotDotToken || parameter.initializer) {
+    let hasRest = false;
+    for (const [index, parameter] of declaration.parameters.entries()) {
+        if (!ts.isIdentifier(parameter.name) || parameter.questionToken || parameter.initializer) {
             throw unsupported(parameter, "required named function parameter");
+        }
+        if (parameter.dotDotDotToken) {
+            if (hasRest || index !== declaration.parameters.length - 1) {
+                throw unsupported(parameter, "single final rest parameter");
+            }
+            const elementType = restElementTypeNode(parameter.type, checker);
+            if (!elementType) throw unsupported(parameter, "portable Nocuft rest parameter array");
+            hasRest = true;
+            parameters.push({
+                kind: "value",
+                name: parameter.name.text,
+                type: { kind: "list", elementType },
+                rest: true,
+            });
+            continue;
         }
         if (isPlayerTargetType(parameter.type, checker)) {
             if (hasPlayerTarget) {
@@ -426,10 +621,29 @@ function analyzeFunctionSignature(
     return { name: declaration.name.text, parameters };
 }
 
+function restElementTypeNode(
+    node: ts.TypeNode | undefined,
+    checker: Checker,
+): ValueType | undefined {
+    if (!node || !ts.isArrayTypeNode(node)) return undefined;
+    return portableArrayElementTypeNode(node.elementType, checker);
+}
+
+function portableArrayElementTypeNode(
+    node: ts.TypeNode,
+    checker: Checker,
+): ValueType | undefined {
+    if (ts.isArrayTypeNode(node)) {
+        const elementType = portableArrayElementTypeNode(node.elementType, checker);
+        return elementType ? { kind: "list", elementType } : undefined;
+    }
+    return functionValueTypeNode(node, checker);
+}
+
 function functionValueTypeNode(
     node: ts.TypeNode | undefined,
     checker: Checker,
-): FunctionValueType | undefined {
+): ValueType | undefined {
     switch (node?.kind) {
         case ts.SyntaxKind.StringKeyword: return "text";
         case ts.SyntaxKind.NumberKeyword: return "number";
@@ -437,12 +651,36 @@ function functionValueTypeNode(
     }
     if (!node || !ts.isTypeReferenceNode(node) || !ts.isIdentifier(node.typeName)) return undefined;
     const symbol = checker.getSymbolAtLocation(node.typeName);
+    if (isSdkSymbol(symbol, "List", "/values/index.d.ts", checker)) {
+        return listValueTypeArgument(node.typeArguments?.[0], checker);
+    }
+    if (isSdkSymbol(symbol, "Dictionary", "/values/index.d.ts", checker)) {
+        return dictionaryValueTypeArgument(node.typeArguments?.[0], checker);
+    }
     if (isSdkSymbol(symbol, "ComponentInput", "/values/index.d.ts", checker)) return "component";
     if (isSdkSymbol(symbol, "Location", "/values/index.d.ts", checker)) return "location";
     if (isSdkSymbol(symbol, "Item", "/values/index.d.ts", checker)) return "item";
     if (isSdkSymbol(symbol, "SoundInput", "/generated/sounds.d.ts", checker)) return "sound";
     if (isSdkSymbol(symbol, "AnyValueInput", "/values/index.d.ts", checker)) return "any";
     return undefined;
+}
+
+function listValueTypeArgument(
+    node: ts.TypeNode | undefined,
+    checker: Checker,
+): ListValueType | undefined {
+    if (!node) return { kind: "list", elementType: "any" };
+    const elementType = functionValueTypeNode(node, checker);
+    return elementType ? { kind: "list", elementType } : undefined;
+}
+
+function dictionaryValueTypeArgument(
+    node: ts.TypeNode | undefined,
+    checker: Checker,
+): DictionaryValueType | undefined {
+    if (!node) return undefined;
+    const valueType = functionValueTypeNode(node, checker);
+    return valueType ? { kind: "dictionary", valueType } : undefined;
 }
 
 function isPlayerTargetType(node: ts.TypeNode | undefined, checker: Checker): boolean {
@@ -540,9 +778,11 @@ function analyzeProcessRegistration(
     registration: ProcessRegistration,
     checker: Checker,
     localFunctions: ReadonlyMap<number, Callable>,
+    resolveFunction: (symbol: TypeScriptSymbol) => Callable | undefined,
     packageFunctions: ReadonlyMap<string, Callable>,
     localProcesses: ReadonlyMap<number, Callable>,
-    plotVariables: ReadonlyMap<number, PlotVariableBinding>,
+    variables: ReadonlyMap<number, StoredVariableBinding>,
+    synthesis: SynthesisContext,
     exported: boolean,
 ): HighProcess {
     const parameters = new Map<number, HighValueParameter>();
@@ -566,11 +806,14 @@ function analyzeProcessRegistration(
             false,
             undefined,
             {
+                templateKind: "process",
                 parameters,
                 localFunctions,
+                resolveFunction,
                 packageFunctions,
                 localProcesses,
-                plotVariables,
+                variables,
+                synthesis,
             },
         ),
     };
@@ -580,9 +823,11 @@ function analyzeEventRegistration(
     declaration: ts.VariableDeclaration,
     checker: Checker,
     localFunctions: ReadonlyMap<number, Callable>,
+    resolveFunction: (symbol: TypeScriptSymbol) => Callable | undefined,
     packageFunctions: ReadonlyMap<string, Callable>,
     localProcesses: ReadonlyMap<number, Callable>,
-    plotVariables: ReadonlyMap<number, PlotVariableBinding>,
+    variables: ReadonlyMap<number, StoredVariableBinding>,
+    synthesis: SynthesisContext,
 ): HighEvent {
     if (!ts.isIdentifier(declaration.name) || !declaration.initializer) {
         throw unsupported(declaration, "event registration");
@@ -688,11 +933,14 @@ function analyzeEventRegistration(
             binding.cancellable,
             expressionContext,
             {
+                templateKind: "event",
                 parameters: new Map(),
                 localFunctions,
+                resolveFunction,
                 packageFunctions,
                 localProcesses,
-                plotVariables,
+                variables,
+                synthesis,
                 eventParameter,
                 eventEntityRoles: entityRoles,
                 eventContext: expressionContext,
@@ -709,18 +957,19 @@ function analyzeBody(
     cancellable = false,
     eventContext?: EventExpressionContext,
     functionContext?: FunctionContext,
+    statementsOverride?: readonly ts.Statement[],
 ): import("@nocuft/dfir").HighStatement[] {
     const lineVariables = functionContext?.lineVariables ?? new Map();
     const lineVariableNames = functionContext?.lineVariableNames ?? new Map();
-    if (functionContext && (!functionContext.lineVariables || !functionContext.lineVariableNames)) {
-        functionContext = { ...functionContext, lineVariables, lineVariableNames };
+    const selectionSnapshots = functionContext?.selectionSnapshots ?? new Map();
+    if (functionContext && (!functionContext.lineVariables || !functionContext.lineVariableNames || !functionContext.selectionSnapshots)) {
+        functionContext = { ...functionContext, lineVariables, lineVariableNames, selectionSnapshots };
     }
-    return body.statements.map((statement) => {
+    if (!functionContext) throw new Error("Missing template analysis context");
+    const statements = statementsOverride ?? body.statements;
+    return statements.flatMap<import("@nocuft/dfir").HighStatement>((statement) => {
         if (ts.isIfStatement(statement)) {
-            if (!eventParameter || statement.elseStatement) {
-                throw unsupported(statement, "if statement");
-            }
-            const condition = analyzeHeldItemCondition(
+            const condition = analyzeCondition(
                 statement.expression,
                 checker,
                 eventParameter,
@@ -729,6 +978,9 @@ function analyzeBody(
             );
             if (!ts.isBlock(statement.thenStatement)) {
                 throw unsupported(statement.thenStatement, "if block");
+            }
+            if (statement.elseStatement && !ts.isBlock(statement.elseStatement)) {
+                throw unsupported(statement.elseStatement, "else block");
             }
             return {
                 kind: "if",
@@ -742,14 +994,213 @@ function analyzeBody(
                     eventContext,
                     functionContext,
                 ),
+                ...(statement.elseStatement
+                    ? {
+                          elseBody: analyzeBody(
+                              statement.elseStatement as ts.Block,
+                              checker,
+                              eventParameter,
+                              eventEntityRoles,
+                              cancellable,
+                              eventContext,
+                              functionContext,
+                          ),
+                      }
+                    : {}),
             };
         }
+        if (ts.isForStatement(statement)) {
+            if (
+                !statement.initializer ||
+                !ts.isVariableDeclarationList(statement.initializer) ||
+                !(statement.initializer.flags & ts.NodeFlags.Let) ||
+                statement.initializer.declarations.length !== 1 ||
+                !statement.condition ||
+                !statement.incrementor ||
+                !ts.isBlock(statement.statement)
+            ) throw unsupported(statement, "canonical numeric for loop");
+            const declaration = statement.initializer.declarations[0];
+            if (!ts.isIdentifier(declaration.name) || !declaration.initializer) {
+                throw unsupported(declaration, "initialized for-loop variable");
+            }
+            const variable = registerLineVariable(declaration.name, "number", checker, functionContext);
+            const initializer = {
+                kind: "declare_line_variable" as const,
+                name: variable.name,
+                valueType: "number" as const,
+                initializer: analyzeExpression(
+                    declaration.initializer,
+                    ["number"],
+                    checker,
+                    new Set(),
+                    eventContext,
+                    functionContext,
+                ),
+            };
+            const condition = analyzeCondition(
+                statement.condition,
+                checker,
+                eventParameter,
+                eventContext,
+                functionContext,
+            );
+            if (
+                condition.kind !== "comparison" ||
+                condition.left.kind !== "line_variable" ||
+                condition.left.name !== variable.name
+            ) throw unsupported(statement.condition, "for-loop induction comparison");
+            const update = analyzeLineVariableMutation(
+                statement.incrementor,
+                checker,
+                eventContext,
+                functionContext,
+            );
+            if (!update || update.variable.name !== variable.name) {
+                throw unsupported(statement.incrementor, "for-loop induction update");
+            }
+            return {
+                kind: "loop",
+                form: "for",
+                initializer,
+                condition,
+                update,
+                body: analyzeBody(
+                    statement.statement,
+                    checker,
+                    eventParameter,
+                    eventEntityRoles,
+                    cancellable,
+                    eventContext,
+                    { ...functionContext, loopDepth: (functionContext.loopDepth ?? 0) + 1 },
+                ),
+            };
+        }
+        if (ts.isForOfStatement(statement)) {
+            if (
+                !ts.isVariableDeclarationList(statement.initializer) ||
+                !(statement.initializer.flags & (ts.NodeFlags.Let | ts.NodeFlags.Const)) ||
+                statement.initializer.declarations.length !== 1 ||
+                !ts.isBlock(statement.statement)
+            ) throw unsupported(statement, "for-of collection loop");
+            const declaration = statement.initializer.declarations[0];
+            const iterableType = expressionValueType(statement.expression, checker, functionContext);
+            if (!iterableType || typeof iterableType === "string" || declaration.initializer) {
+                throw unsupported(statement, "for-of collection loop");
+            }
+            if (isDictionaryValueType(iterableType)) {
+                if (!ts.isArrayBindingPattern(declaration.name) || declaration.name.elements.length !== 2 ||
+                    declaration.name.elements.some((element) => !ts.isBindingElement(element) ||
+                        element.dotDotDotToken || element.initializer || !element.name || !ts.isIdentifier(element.name))) {
+                    throw unsupported(declaration.name, "dictionary [key, value] binding");
+                }
+                const keyVariable = registerLineVariable(
+                    declaration.name.elements[0].name as ts.Identifier, "text", checker, functionContext,
+                );
+                const valueVariable = registerLineVariable(
+                    declaration.name.elements[1].name as ts.Identifier,
+                    iterableType.valueType,
+                    checker,
+                    functionContext,
+                );
+                return {
+                    kind: "for_each_dictionary",
+                    keyVariable: keyVariable as typeof keyVariable & { valueType: "text" },
+                    valueVariable,
+                    dictionary: analyzeExpression(
+                        statement.expression, [iterableType], checker, new Set(), eventContext, functionContext,
+                    ),
+                    body: analyzeBody(
+                        statement.statement, checker, eventParameter, eventEntityRoles, cancellable,
+                        eventContext, { ...functionContext, loopDepth: (functionContext.loopDepth ?? 0) + 1 },
+                    ),
+                };
+            }
+            if (!ts.isIdentifier(declaration.name)) throw unsupported(declaration.name, "list loop variable");
+            const variable = registerLineVariable(
+                declaration.name,
+                iterableType.elementType,
+                checker,
+                functionContext,
+            );
+            return {
+                kind: "for_each",
+                variable,
+                iterable: analyzeExpression(
+                    statement.expression,
+                    [iterableType],
+                    checker,
+                    new Set(),
+                    eventContext,
+                    functionContext,
+                ),
+                body: analyzeBody(
+                    statement.statement,
+                    checker,
+                    eventParameter,
+                    eventEntityRoles,
+                    cancellable,
+                    eventContext,
+                    { ...functionContext, loopDepth: (functionContext.loopDepth ?? 0) + 1 },
+                ),
+            };
+        }
+        if (ts.isWhileStatement(statement) || ts.isDoStatement(statement)) {
+            if (!ts.isBlock(statement.statement)) {
+                throw unsupported(statement.statement, "loop block");
+            }
+            return {
+                kind: "loop",
+                form: ts.isWhileStatement(statement) ? "while" : "do_while",
+                condition: analyzeCondition(
+                    statement.expression,
+                    checker,
+                    eventParameter,
+                    eventContext,
+                    functionContext,
+                ),
+                body: analyzeBody(
+                    statement.statement,
+                    checker,
+                    eventParameter,
+                    eventEntityRoles,
+                    cancellable,
+                    eventContext,
+                    { ...functionContext, loopDepth: (functionContext.loopDepth ?? 0) + 1 },
+                ),
+            };
+        }
+        if (ts.isBreakStatement(statement) || ts.isContinueStatement(statement)) {
+            if (statement.label || (functionContext.loopDepth ?? 0) === 0) {
+                throw unsupported(statement, "loop control outside a loop");
+            }
+            return {
+                kind: "loop_control",
+                control: ts.isBreakStatement(statement) ? "break" : "continue",
+            };
+        }
+        if (ts.isReturnStatement(statement)) {
+            if (statement.expression) throw unsupported(statement, "value-less return");
+            return { kind: "return", context: functionContext.templateKind };
+        }
         if (ts.isVariableStatement(statement)) {
+            const snapshot = analyzeSelectionSnapshotDeclaration(
+                statement,
+                checker,
+                functionContext,
+            );
+            if (snapshot !== undefined) return snapshot;
             if (statement.declarationList.declarations.length !== 1) {
                 throw unsupported(statement, "line variable declaration");
             }
             const declaration = statement.declarationList.declarations[0];
-            if (
+            const dictionaryGet = analyzeDictionaryGetDeclaration(
+                statement,
+                checker,
+                eventContext,
+                functionContext,
+            );
+            if (dictionaryGet !== undefined) return dictionaryGet;
+            const explicit =
                 !ts.isIdentifier(declaration.name) ||
                 !declaration.initializer ||
                 !ts.isCallExpression(declaration.initializer) ||
@@ -761,34 +1212,60 @@ function analyzeBody(
                     "/line.d.ts",
                     checker,
                 ) ||
-                declaration.initializer.arguments.length !== 1
-            ) {
-                throw unsupported(statement, "line location declaration");
-            }
-            const factory = declaration.initializer.expression.name.text;
-            const valueType = factory === "location"
+                declaration.initializer.arguments.length !== 1;
+            const factory = explicit
+                ? undefined
+                : (declaration.initializer as ts.CallExpression).expression;
+            const factoryName = factory && ts.isPropertyAccessExpression(factory)
+                ? factory.name.text
+                : undefined;
+            let valueType: ValueType | undefined = factoryName === "location"
                 ? "location"
-                : factory === "number"
+                : factoryName === "number"
                   ? "number"
-                  : factory === "string"
+                  : factoryName === "string"
                     ? "text"
-                    : factory === "boolean"
+                    : factoryName === "boolean"
                       ? "boolean"
-                      : undefined;
-            if (!valueType) throw unsupported(statement, "line variable factory");
-            const symbol = checker.getSymbolAtLocation(declaration.name);
-            if (!symbol) throw unsupported(declaration.name, "line variable");
-            const baseName = `__nocuft_line_${declaration.name.text}`;
-            const occurrence = (lineVariableNames.get(baseName) ?? 0) + 1;
-            lineVariableNames.set(baseName, occurrence);
-            const name = occurrence === 1 ? baseName : `${baseName}_${occurrence}`;
-            lineVariables.set(symbol.id, { name, valueType });
+                      : factoryName === "item"
+                        ? "item"
+                        : factoryName === "list"
+                          ? expressionValueType(
+                              (declaration.initializer as ts.CallExpression).arguments[0],
+                              checker,
+                              functionContext,
+                          )
+                        : factoryName === "dictionary"
+                          ? expressionValueType(
+                              (declaration.initializer as ts.CallExpression).arguments[0],
+                              checker,
+                              functionContext,
+                          )
+                       : undefined;
+            let initializer = !explicit
+                ? (declaration.initializer as ts.CallExpression).arguments[0]
+                : declaration.initializer;
+            if (!valueType) {
+                if (!(statement.declarationList.flags & ts.NodeFlags.Let) ||
+                    !ts.isIdentifier(declaration.name) || !declaration.initializer) {
+                    throw unsupported(statement, "initialized mutable scalar line variable");
+                }
+                valueType = expressionValueType(declaration.initializer, checker, functionContext);
+                initializer = declaration.initializer;
+            }
+            if (!valueType && initializer && ts.isObjectLiteralExpression(initializer)) {
+                throw unsupported(initializer, "dictionary(...) constructor; arbitrary objects are not runtime values");
+            }
+            if (!valueType || !initializer || !ts.isIdentifier(declaration.name)) {
+                throw unsupported(statement, "line variable declaration");
+            }
+            const variable = registerLineVariable(declaration.name, valueType, checker, functionContext);
             return {
                 kind: "declare_line_variable",
-                name,
+                name: variable.name,
                 valueType,
                 initializer: analyzeExpression(
-                    declaration.initializer.arguments[0],
+                    initializer,
                     [valueType],
                     checker,
                     new Set(),
@@ -797,13 +1274,52 @@ function analyzeBody(
                 ),
             };
         }
-        if (
-            !ts.isExpressionStatement(statement) ||
-            !ts.isCallExpression(statement.expression)
-        ) {
+        if (!ts.isExpressionStatement(statement)) {
             throw unsupported(statement, "function statement");
         }
-        const variableMutation = analyzePlotVariableMutation(
+        const lineMutation = analyzeLineVariableMutation(
+            statement.expression,
+            checker,
+            eventContext,
+            functionContext,
+        );
+        if (lineMutation) return lineMutation;
+        if (!ts.isCallExpression(statement.expression)) {
+            throw unsupported(statement, "function statement");
+        }
+        const statementCall = statement.expression;
+        const statementMethod = ts.isPropertyAccessExpression(statementCall.expression)
+            ? statementCall.expression
+            : undefined;
+        if (
+            statementMethod &&
+            Object.values(itemTransformBindings).some(
+                (binding) => binding.method === statementMethod.name.text,
+            ) &&
+            isSdkSymbol(
+                checker.getSymbolAtLocation(statementMethod.name),
+                statementMethod.name.text,
+                "/values/index.d.ts",
+                checker,
+            )
+        ) {
+            throw unsupported(statement, "assigned item transformation result");
+        }
+        const discarded = collectionExpression(statementCall, checker, functionContext);
+        if (discarded?.form === "method" && discarded.transformation && discarded.sdkMember) {
+            throw unsupported(
+                statement,
+                `assigned ${discarded.receiverType.kind} transformation result`,
+            );
+        }
+        const playerVariableSet = analyzePlayerVariableSetCall(
+            statement.expression,
+            checker,
+            functionContext,
+            eventContext,
+        );
+        if (playerVariableSet) return playerVariableSet;
+        const variableMutation = analyzeStoredVariableMutation(
             statement.expression,
             checker,
             functionContext,
@@ -876,6 +1392,356 @@ function analyzeBody(
     });
 }
 
+function analyzeSelectionSnapshotDeclaration(
+    statement: ts.VariableStatement,
+    checker: Checker,
+    context: FunctionContext,
+): import("@nocuft/dfir").HighSelectionSnapshotDeclaration[] | undefined {
+    if (statement.declarationList.declarations.length !== 1) return undefined;
+    const declaration = statement.declarationList.declarations[0];
+    if (!declaration.initializer) return undefined;
+
+    const alias = ts.isIdentifier(declaration.initializer)
+        ? snapshotBinding(declaration.initializer, checker, context)
+        : undefined;
+    const selection = alias
+        ? undefined
+        : analyzeSelectionExpression(declaration.initializer, checker, context.eventContext, context);
+    if (!alias && (!selection || selection.resultType !== "player")) return undefined;
+    if (!(statement.declarationList.flags & ts.NodeFlags.Const) || !ts.isIdentifier(declaration.name)) {
+        throw unsupported(statement, "const player selection snapshot declaration");
+    }
+    const symbol = checker.getSymbolAtLocation(declaration.name);
+    if (!symbol) throw unsupported(declaration.name, "player selection snapshot binding");
+    if (alias) {
+        context.selectionSnapshots?.set(symbol.id, alias);
+        return [];
+    }
+    const cardinality = selectionCardinality(declaration.initializer, checker, context);
+    const names = context.lineVariableNames as Map<string, number>;
+    const baseName = `__nocuft_selection_${declaration.name.text}`;
+    const name = allocateLineName(baseName, names);
+    const binding: SelectionSnapshotBinding = {
+        name,
+        sizeName: allocateLineName(`${baseName}_count`, names),
+        resultType: "player",
+        cardinality,
+    };
+    context.selectionSnapshots?.set(symbol.id, binding);
+    return [{
+        kind: "declare_selection_snapshot",
+        ...binding,
+        initializer: selection as HighSelectionExpression,
+    }];
+}
+
+function selectionCardinality(
+    expression: ts.Expression,
+    checker: Checker,
+    context: FunctionContext,
+): "many" | "at_most_one" {
+    if (ts.isIdentifier(expression)) {
+        return snapshotBinding(expression, checker, context)?.cardinality ?? "many";
+    }
+    if (!ts.isCallExpression(expression) || !ts.isPropertyAccessExpression(expression.expression)) {
+        return "many";
+    }
+    const method = expression.expression.name.text;
+    if (method === "one") return "at_most_one";
+    const base = selectionCardinality(expression.expression.expression, checker, context);
+    if (method === "where") return base;
+    if (["random", "nearest", "nearestWith", "farthest", "farthestWith"].includes(method)) {
+        const count = expression.arguments.at(-1);
+        return count && ts.isNumericLiteral(count) && Number(count.text) <= 1
+            ? "at_most_one"
+            : base === "at_most_one" ? base : "many";
+    }
+    return "many";
+}
+
+function analyzeDictionaryGetDeclaration(
+    statement: ts.VariableStatement,
+    checker: Checker,
+    eventContext: EventExpressionContext | undefined,
+    functionContext: FunctionContext,
+): HighDictionaryGetDeclaration | undefined {
+    const declaration = statement.declarationList.declarations[0];
+    const initializer = declaration.initializer;
+    if (!initializer || !ts.isCallExpression(initializer) ||
+        !ts.isPropertyAccessExpression(initializer.expression) ||
+        initializer.expression.name.text !== "get" ||
+        !isSdkSymbol(
+            checker.getSymbolAtLocation(initializer.expression.name), "get", "/values/index.d.ts", checker,
+        )) return undefined;
+    const dictionaryType = expressionValueType(initializer.expression.expression, checker, functionContext);
+    if (!dictionaryType || !isDictionaryValueType(dictionaryType)) return undefined;
+    if (!(statement.declarationList.flags & (ts.NodeFlags.Let | ts.NodeFlags.Const)) ||
+        !ts.isArrayBindingPattern(declaration.name) || declaration.name.elements.length !== 2 ||
+        declaration.name.elements.some((element) => !ts.isBindingElement(element) ||
+            element.dotDotDotToken || element.initializer || !element.name || !ts.isIdentifier(element.name))) {
+        throw unsupported(declaration.name, "dictionary [value, found] binding");
+    }
+    if (initializer.arguments.length !== 1) throw unsupported(initializer, "dictionary get key");
+    const key = analyzeExpression(
+        initializer.arguments[0], ["text"], checker, new Set(), eventContext, functionContext,
+    );
+    const dictionary = analyzeExpression(
+        initializer.expression.expression, [dictionaryType], checker, new Set(), eventContext, functionContext,
+    );
+    const valueVariable = registerLineVariable(
+        declaration.name.elements[0].name as ts.Identifier, dictionaryType.valueType, checker, functionContext,
+    );
+    const foundVariable = registerLineVariable(
+        declaration.name.elements[1].name as ts.Identifier, "boolean", checker, functionContext,
+    );
+    return {
+        kind: "declare_dictionary_get",
+        valueVariable,
+        foundVariable: foundVariable as typeof foundVariable & { valueType: "boolean" },
+        dictionary,
+        key,
+    };
+}
+
+function registerLineVariable(
+    identifier: ts.Identifier,
+    valueType: ValueType,
+    checker: Checker,
+    context: FunctionContext,
+): import("@nocuft/dfir").HighLineVariableExpression {
+    const symbol = checker.getSymbolAtLocation(identifier);
+    if (!symbol) throw unsupported(identifier, "line variable");
+    const names = context.lineVariableNames as Map<string, number>;
+    const baseName = `__nocuft_line_${identifier.text}`;
+    const name = allocateLineName(baseName, names);
+    context.lineVariables?.set(
+        symbol.id,
+        { name, sourceName: identifier.text, valueType },
+    );
+    return { kind: "line_variable", name, valueType };
+}
+
+function allocateLineName(baseName: string, names: Map<string, number>): string {
+    const occurrence = (names.get(baseName) ?? 0) + 1;
+    names.set(baseName, occurrence);
+    return occurrence === 1 ? baseName : `${baseName}_${occurrence}`;
+}
+
+function analyzeCondition(
+    expression: ts.Expression,
+    checker: Checker,
+    eventParameter?: TypeScriptSymbol,
+    eventContext?: EventExpressionContext,
+    functionContext?: FunctionContext,
+): import("@nocuft/dfir").HighCondition {
+    if (ts.isParenthesizedExpression(expression)) {
+        return analyzeCondition(
+            expression.expression,
+            checker,
+            eventParameter,
+            eventContext,
+            functionContext,
+        );
+    }
+    if (
+        ts.isPrefixUnaryExpression(expression) &&
+        expression.operator === ts.SyntaxKind.ExclamationToken
+    ) {
+        return {
+            kind: "logical",
+            operator: "not",
+            operands: [analyzeCondition(
+                expression.operand,
+                checker,
+                eventParameter,
+                eventContext,
+                functionContext,
+            )],
+        };
+    }
+    if (
+        ts.isBinaryExpression(expression) &&
+        (expression.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken ||
+            expression.operatorToken.kind === ts.SyntaxKind.BarBarToken)
+    ) {
+        return {
+            kind: "logical",
+            operator: expression.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken
+                ? "and"
+                : "or",
+            operands: [
+                analyzeCondition(expression.left, checker, eventParameter, eventContext, functionContext),
+                analyzeCondition(expression.right, checker, eventParameter, eventContext, functionContext),
+            ],
+        };
+    }
+    if (ts.isCallExpression(expression) && expression.arguments.length === 1 &&
+        ts.isPropertyAccessExpression(expression.expression) && expression.expression.name.text === "has" &&
+        isSdkSymbol(checker.getSymbolAtLocation(expression.expression.name), "has", "/values/index.d.ts", checker)) {
+        const dictionaryType = expressionValueType(expression.expression.expression, checker, functionContext);
+        if (!dictionaryType || !isDictionaryValueType(dictionaryType)) {
+            throw unsupported(expression.expression.expression, "dictionary has receiver");
+        }
+        return {
+            kind: "dictionary_has_key",
+            dictionary: analyzeExpression(
+                expression.expression.expression, [dictionaryType], checker, new Set(), eventContext, functionContext,
+            ),
+            key: analyzeExpression(expression.arguments[0], ["text"], checker, new Set(), eventContext, functionContext),
+        };
+    }
+    if (
+        eventParameter &&
+        ts.isBinaryExpression(expression) &&
+        expression.operatorToken.kind === ts.SyntaxKind.EqualsEqualsEqualsToken
+    ) {
+        try {
+            return analyzeHeldItemCondition(
+                expression,
+                checker,
+                eventParameter,
+                eventContext,
+                functionContext,
+            );
+        } catch {
+            // Continue with the portable comparison forms.
+        }
+    }
+    if (ts.isBinaryExpression(expression)) {
+        const action = comparisonAction(expression.operatorToken.kind);
+        if (action) {
+            if (!(action in structuralBindings.ifVariable)) {
+                throw new Error(`Missing generated If Variable action ${action}`);
+            }
+            const binding = structuralBindings.ifVariable[
+                action as keyof typeof structuralBindings.ifVariable
+            ];
+            return {
+                kind: "comparison",
+                action,
+                left: analyzeExpression(
+                    expression.left,
+                    binding.inputs[0].acceptedTypes,
+                    checker,
+                    new Set(),
+                    eventContext,
+                    functionContext,
+                ),
+                right: analyzeExpression(
+                    expression.right,
+                    binding.inputs[1].acceptedTypes,
+                    checker,
+                    new Set(),
+                    eventContext,
+                    functionContext,
+                ),
+            };
+        }
+    }
+    return {
+        kind: "boolean_condition",
+        value: analyzeExpression(
+            expression,
+            ["boolean"],
+            checker,
+            new Set(),
+            eventContext,
+            functionContext,
+        ),
+    };
+}
+
+function comparisonAction(kind: ts.SyntaxKind): string | undefined {
+    switch (kind) {
+        case ts.SyntaxKind.EqualsEqualsEqualsToken: return "=";
+        case ts.SyntaxKind.ExclamationEqualsEqualsToken: return "!=";
+        case ts.SyntaxKind.LessThanToken: return "<";
+        case ts.SyntaxKind.LessThanEqualsToken: return "<=";
+        case ts.SyntaxKind.GreaterThanToken: return ">";
+        case ts.SyntaxKind.GreaterThanEqualsToken: return ">=";
+        default: return undefined;
+    }
+}
+
+function analyzeLineVariableMutation(
+    expression: ts.Expression,
+    checker: Checker,
+    eventContext?: EventExpressionContext,
+    context?: FunctionContext,
+): import("@nocuft/dfir").HighSetVariableStatement | undefined {
+    if (!context) return undefined;
+    let identifier: ts.Identifier | undefined;
+    let operation: string | undefined;
+    let right: ts.Expression | undefined;
+    if (ts.isBinaryExpression(expression) && ts.isIdentifier(expression.left)) {
+        identifier = expression.left;
+        right = expression.right;
+        switch (expression.operatorToken.kind) {
+            case ts.SyntaxKind.EqualsToken: operation = "="; break;
+            case ts.SyntaxKind.PlusEqualsToken: operation = "+="; break;
+            case ts.SyntaxKind.MinusEqualsToken: operation = "-="; break;
+            case ts.SyntaxKind.AsteriskEqualsToken: operation = "x"; break;
+            case ts.SyntaxKind.SlashEqualsToken: operation = "/"; break;
+            case ts.SyntaxKind.PercentEqualsToken: operation = "%"; break;
+            case ts.SyntaxKind.AsteriskAsteriskEqualsToken: operation = "Exponent"; break;
+            default: return undefined;
+        }
+    } else if (
+        (ts.isPrefixUnaryExpression(expression) || ts.isPostfixUnaryExpression(expression)) &&
+        ts.isIdentifier(expression.operand) &&
+        (expression.operator === ts.SyntaxKind.PlusPlusToken ||
+            expression.operator === ts.SyntaxKind.MinusMinusToken)
+    ) {
+        identifier = expression.operand;
+        operation = expression.operator === ts.SyntaxKind.PlusPlusToken ? "+=" : "-=";
+    } else {
+        return undefined;
+    }
+    const symbol = checker.getSymbolAtLocation(identifier);
+    const binding = symbol ? context.lineVariables?.get(symbol.id) : undefined;
+    if (!binding) return undefined;
+    if (operation !== "=" && binding.valueType !== "number") {
+        throw unsupported(expression, "numeric line variable mutation");
+    }
+    const variable = {
+        kind: "line_variable" as const,
+        name: binding.name,
+        valueType: binding.valueType,
+    };
+    if (operation === "+=" || operation === "-=") {
+        if (!(operation in structuralBindings.setVariable)) {
+            throw new Error(`Missing generated Set Variable action ${operation}`);
+        }
+        return {
+            kind: "set_variable",
+            variable,
+            operation,
+            value: right
+                ? analyzeExpression(right, ["number"], checker, new Set(), eventContext, context)
+                : { kind: "number", value: 1 },
+        };
+    }
+    const analyzed = analyzeExpression(
+        right as ts.Expression,
+        [binding.valueType],
+        checker,
+        new Set(),
+        eventContext,
+        context,
+    );
+    return operation === "="
+        ? { kind: "set_variable", variable, value: analyzed }
+        : {
+              kind: "set_variable",
+              variable,
+              value: {
+                  kind: "arithmetic",
+                  operation,
+                  operands: [variable, analyzed],
+              },
+          };
+}
+
 function analyzeHeldItemCondition(
     expression: ts.Expression,
     checker: Checker,
@@ -903,7 +1769,13 @@ function analyzeHeldItemCondition(
     ) {
         throw unsupported(expression.left, "main hand item condition");
     }
-    const item = analyzeItem(expression.right, checker);
+    const item = analyzeItem(
+        expression.right,
+        checker,
+        new Set(),
+        eventContext,
+        functionContext,
+    );
     if (item.kind !== "item") {
         throw unsupported(expression.right, "item condition value");
     }
@@ -1038,35 +1910,111 @@ function analyzeLineLocationMutation(
     };
 }
 
-function analyzePlotVariableMutation(
+function analyzeStoredVariableMutation(
     call: ts.CallExpression,
     checker: Checker,
     context?: FunctionContext,
     eventContext?: EventExpressionContext,
-): import("@nocuft/dfir").HighSetVariableStatement | import("@nocuft/dfir").HighClearVariableStatement | undefined {
+): import("@nocuft/dfir").HighSetVariableStatement | import("@nocuft/dfir").HighClearVariableStatement | import("@nocuft/dfir").HighFunctionCallStatement | undefined {
     if (
         !context ||
         !ts.isPropertyAccessExpression(call.expression) ||
         !ts.isIdentifier(call.expression.expression)
     ) return undefined;
-    const symbol = checker.getSymbolAtLocation(call.expression.expression);
-    const variable = symbol ? context.plotVariables.get(symbol.id) : undefined;
+    const variable = storedVariableBinding(
+        checker.getSymbolAtLocation(call.expression.expression),
+        checker,
+        context.variables,
+    );
     if (!variable) return undefined;
     const method = call.expression.name.text;
-    const reference = {
+    if (method === "clearAll") {
+        throw unsupported(call, "player variable clearAll until native purge semantics are verified");
+    }
+    if (variable.owner === "player" && call.arguments.length === 0) {
+        throw unsupported(call, "player variable target");
+    }
+    const receiver = variable.owner === "player"
+        ? analyzePlayerArgument(call.arguments[0], checker, context)
+        : undefined;
+    if (receiver?.kind === "selection") {
+        const clear = method === "clear" && call.arguments.length === 1;
+        const set = method === "set" && call.arguments.length === 2;
+        if (!clear && !set) throw unsupported(call, "stored variable mutation");
+        const value = set ? analyzeExpression(
+            call.arguments[1],
+            [variable.valueType],
+            checker,
+            new Set(),
+            eventContext,
+            context,
+        ) : undefined;
+        if (value && variable.enumValues &&
+            (value.kind !== "string" || !variable.enumValues.includes(value.value))) {
+            throw unsupported(call.arguments[1], "declared enum value");
+        }
+        const helperName = allocateHelperName(
+            context.synthesis,
+            clear ? "clear_player_variable" : "set_player_variable",
+        );
+        context.synthesis.functions.push({
+            kind: "function",
+            name: helperName,
+            exported: false,
+            parameters: [
+                ...(value ? [{ kind: "value" as const, name: "value", type: variable.valueType }] : []),
+                { kind: "target", name: "player", target: "player" },
+            ],
+            body: [value ? {
+                kind: "set_variable",
+                variable: {
+                    kind: "player_variable",
+                    name: variable.name,
+                    scope: variable.scope,
+                    valueType: variable.valueType,
+                    receiver: "current_player",
+                },
+                value: { kind: "parameter", name: "value", valueType: variable.valueType },
+            } : {
+                kind: "clear_variable",
+                variable: {
+                    kind: "player_variable",
+                    name: variable.name,
+                    scope: variable.scope,
+                    valueType: variable.valueType,
+                    receiver: "current_player",
+                },
+            }],
+        });
+        return {
+            kind: "call_function",
+            function: helperName,
+            arguments: value ? [value] : [],
+            receiver,
+        };
+    }
+    const reference = variable.owner === "player" ? {
+        kind: "player_variable" as const,
+        name: variable.name,
+        scope: variable.scope,
+        valueType: variable.valueType,
+        receiver: "current_player" as const,
+    } : {
         kind: "plot_variable" as const,
         name: variable.name,
-        scope: "unsaved" as const,
+        scope: variable.scope,
         valueType: variable.valueType,
     };
-    if (method === "clear" && call.arguments.length === 0) {
+    const valueIndex = variable.owner === "player" ? 1 : 0;
+    const expectedCount = variable.owner === "player" ? 1 : 0;
+    if (method === "clear" && call.arguments.length === expectedCount) {
         return { kind: "clear_variable", variable: reference };
     }
-    if (method !== "set" || call.arguments.length !== 1) {
-        throw unsupported(call, "plot variable mutation");
+    if (method !== "set" || call.arguments.length !== valueIndex + 1) {
+        throw unsupported(call, "stored variable mutation");
     }
     const value = analyzeExpression(
-        call.arguments[0],
+        call.arguments[valueIndex],
         [variable.valueType],
         checker,
         new Set(),
@@ -1077,9 +2025,92 @@ function analyzePlotVariableMutation(
         variable.enumValues &&
         (value.kind !== "string" || !variable.enumValues.includes(value.value))
     ) {
-        throw unsupported(call.arguments[0], "declared enum value");
+        throw unsupported(call.arguments[valueIndex], "declared enum value");
     }
     return { kind: "set_variable", variable: reference, value };
+}
+
+function analyzePlayerVariableSetCall(
+    call: ts.CallExpression,
+    checker: Checker,
+    context?: FunctionContext,
+    eventContext?: EventExpressionContext,
+): import("@nocuft/dfir").HighSetVariableStatement | import("@nocuft/dfir").HighFunctionCallStatement | undefined {
+    if (
+        !context ||
+        call.arguments.length !== 2 ||
+        !ts.isPropertyAccessExpression(call.expression) ||
+        call.expression.name.text !== "set" ||
+        !ts.isIdentifier(call.arguments[0])
+    ) return undefined;
+    const variable = storedVariableBinding(
+        checker.getSymbolAtLocation(call.arguments[0]),
+        checker,
+        context.variables,
+    );
+    if (!variable || variable.owner !== "player") return undefined;
+    if (!isSdkSymbol(checker.getSymbolAtLocation(call.expression.name), "set", "/players.d.ts", checker)) {
+        throw unsupported(call, "player variable selection mutation");
+    }
+    const receiver = analyzePlayerArgument(call.expression.expression, checker, context);
+    const value = analyzeExpression(
+        call.arguments[1],
+        [variable.valueType],
+        checker,
+        new Set(),
+        eventContext,
+        context,
+    );
+    if (
+        variable.enumValues &&
+        (value.kind !== "string" || !variable.enumValues.includes(value.value))
+    ) {
+        throw unsupported(call.arguments[1], "declared enum value");
+    }
+    if (receiver.kind === "selection") {
+        const helperName = allocateHelperName(context.synthesis, "set_player_variable");
+        context.synthesis.functions.push({
+            kind: "function",
+            name: helperName,
+            exported: false,
+            parameters: [
+                { kind: "value", name: "value", type: variable.valueType },
+                { kind: "target", name: "player", target: "player" },
+            ],
+            body: [{
+                kind: "set_variable",
+                variable: {
+                    kind: "player_variable",
+                    name: variable.name,
+                    scope: variable.scope,
+                    valueType: variable.valueType,
+                    receiver: "current_player",
+                },
+                value: {
+                    kind: "parameter",
+                    name: "value",
+                    valueType: variable.valueType,
+                },
+            }],
+        });
+        return {
+            kind: "call_function",
+            function: helperName,
+            arguments: [value],
+            receiver,
+        };
+    }
+    return {
+        kind: "set_variable",
+        variable: {
+            kind: "player_variable",
+            name: variable.name,
+            scope: variable.scope,
+            valueType: variable.valueType,
+            receiver: "current_player",
+        },
+        value,
+    };
 }
 
 function analyzeBoundArguments(
@@ -1101,18 +2132,14 @@ function analyzeBoundArguments(
     let consumed = 0;
     for (const parameter of parameters) {
         if (parameter.kind === "rest") {
-            const values = call.arguments
-                .slice(parameter.sourceIndex)
-                .map((argument) =>
-                    analyzeExpression(
-                        argument,
-                        parameter.types,
-                        checker,
-                        new Set<number>(),
-                        eventContext,
-                        functionContext,
-                    ),
-                );
+            const values = analyzePluralArguments(
+                call.arguments.slice(parameter.sourceIndex),
+                parameter.types,
+                checker,
+                eventContext,
+                functionContext,
+                parameter.minimumLength,
+            );
             if (values.length < parameter.minimumLength) {
                 throw new Error(`Expected at least ${parameter.minimumLength} arguments for ${parameter.input} in ${method}`);
             }
@@ -1168,21 +2195,82 @@ function analyzeBoundArguments(
     return result;
 }
 
+function analyzePluralArguments(
+    arguments_: readonly ts.Expression[],
+    elementTypes: readonly string[],
+    checker: Checker,
+    eventContext?: EventExpressionContext,
+    functionContext?: FunctionContext,
+    minimumLength = 0,
+): HighExpression[] {
+    return arguments_.map((argument) => {
+        if (ts.isSpreadElement(argument)) {
+            if (minimumLength > 0) {
+                throw unsupported(
+                    argument,
+                    `runtime List spread for a native input requiring at least ${minimumLength} value; nonempty length cannot be proven`,
+                );
+            }
+            return analyzeExpression(
+                argument.expression,
+                elementTypes.map((elementType) => ({
+                    kind: "list" as const,
+                    elementType: elementType as ValueType,
+                })),
+                checker,
+                new Set<number>(),
+                eventContext,
+                functionContext,
+            );
+        }
+        return analyzeExpression(
+            argument,
+            elementTypes,
+            checker,
+            new Set<number>(),
+            eventContext,
+            functionContext,
+        );
+    });
+}
+
 interface FunctionContext {
+    templateKind: "function" | "process" | "event";
     parameters: ReadonlyMap<number, HighValueParameter>;
     playerTargetSymbol?: TypeScriptSymbol;
     localFunctions: ReadonlyMap<number, Callable>;
+    resolveFunction: (symbol: TypeScriptSymbol) => Callable | undefined;
     packageFunctions: ReadonlyMap<string, Callable>;
     localProcesses: ReadonlyMap<number, Callable>;
     eventParameter?: TypeScriptSymbol;
     eventEntityRoles?: EventEntityRoles;
     eventContext?: EventExpressionContext;
-    plotVariables: ReadonlyMap<number, PlotVariableBinding>;
+    variables: ReadonlyMap<number, StoredVariableBinding>;
+    synthesis: SynthesisContext;
     lineVariables?: Map<number, {
         name: string;
-        valueType: "location" | "number" | "text" | "boolean";
-    }>;
+        sourceName: string;
+        valueType: ValueType;
+    }>; 
     lineVariableNames?: Map<string, number>;
+    selectionSnapshots?: Map<number, SelectionSnapshotBinding>;
+    loopDepth?: number;
+}
+
+interface SelectionSnapshotBinding {
+    name: string;
+    sizeName: string;
+    resultType: "player";
+    cardinality: "many" | "at_most_one";
+}
+
+function snapshotBinding(
+    identifier: ts.Identifier,
+    checker: Checker,
+    context?: FunctionContext,
+): SelectionSnapshotBinding | undefined {
+    const symbol = checker.getSymbolAtLocation(identifier);
+    return symbol ? context?.selectionSnapshots?.get(symbol.id) : undefined;
 }
 
 function analyzeFunctionCall(
@@ -1199,6 +2287,9 @@ function analyzeFunctionCall(
     }
     let callable = context.localFunctions.get(symbol.id);
     if (!callable) {
+        callable = context.resolveFunction(symbol);
+    }
+    if (!callable) {
         const declaration = symbol.declarations?.[0];
         if (declaration) {
             callable = context.packageFunctions.get(
@@ -1209,8 +2300,17 @@ function analyzeFunctionCall(
     if (!callable) {
         return undefined;
     }
-    if (call.arguments.length !== callable.parameters.length) {
-        throw new Error(`Function ${callable.name} expects ${callable.parameters.length} arguments`);
+    const restIndex = callable.parameters.findIndex((parameter) =>
+        parameter.kind === "value" && parameter.rest === true);
+    const required = restIndex < 0 ? callable.parameters.length : restIndex;
+    if (call.arguments.length < required || (restIndex < 0 && call.arguments.length !== required)) {
+        throw new Error(restIndex < 0
+            ? `Function ${callable.name} expects ${required} arguments`
+            : `Function ${callable.name} expects at least ${required} arguments`);
+    }
+    if (call.arguments.some(ts.isSpreadElement)) {
+        const spread = call.arguments.find(ts.isSpreadElement) as ts.SpreadElement;
+        throw unsupported(spread, "dynamic List spread in a user function call; pass rest arguments explicitly");
     }
     let receiver: HighReceiver | undefined;
     const args: HighExpression[] = [];
@@ -1218,6 +2318,17 @@ function analyzeFunctionCall(
         const argument = call.arguments[index];
         if (parameter.kind === "target") {
             receiver = analyzePlayerArgument(argument, checker, context);
+        } else if (parameter.rest === true) {
+            for (const restArgument of call.arguments.slice(index)) {
+                args.push(analyzeExpression(
+                    restArgument,
+                    [parameter.type.elementType],
+                    checker,
+                    new Set<number>(),
+                    context.eventContext,
+                    context,
+                ));
+            }
         } else {
             args.push(analyzeExpression(
                 argument,
@@ -1381,6 +2492,19 @@ function analyzeIntrinsicCall(
         throw unsupported(call, "action intrinsic");
     }
 
+    if (
+        (binding.operation === "control.skip" || binding.operation === "control.stop_repeat") &&
+        (functionContext?.loopDepth ?? 0) === 0
+    ) {
+        throw unsupported(call, "repeat control outside a loop");
+    }
+    if (
+        (binding.operation === "control.return" || binding.operation === "control.return_ntimes") &&
+        functionContext?.templateKind !== "function"
+    ) {
+        throw unsupported(call, "function return control outside a function");
+    }
+
     const receiver = analyzeReceiver(
         call.expression.expression,
         binding.receiver,
@@ -1395,18 +2519,14 @@ function analyzeIntrinsicCall(
     const argumentsByName: Record<string, HighArgument> = {};
     for (const parameter of binding.parameters) {
         if (parameter.kind === "rest") {
-            const expressions = call.arguments
-                .slice(parameter.sourceIndex)
-                .map((argument) =>
-                    analyzeExpression(
-                        argument,
-                        parameter.types,
-                        checker,
-                        new Set<number>(),
-                        eventContext,
-                        functionContext,
-                    ),
-                );
+            const expressions = analyzePluralArguments(
+                call.arguments.slice(parameter.sourceIndex),
+                parameter.types,
+                checker,
+                eventContext,
+                functionContext,
+                parameter.minimumLength,
+            );
             if (expressions.length < parameter.minimumLength) {
                 throw new Error(
                     `Expected at least ${parameter.minimumLength} arguments for ${parameter.input} in ${method}`,
@@ -1573,6 +2693,15 @@ function analyzeSelectionExpression(
     eventContext?: EventExpressionContext,
     functionContext?: FunctionContext,
 ): HighSelectionExpression | undefined {
+    if (ts.isIdentifier(expression)) {
+        const snapshot = snapshotBinding(expression, checker, functionContext);
+        return snapshot ? {
+            kind: "selection",
+            resultType: "player",
+            source: { kind: "selection_snapshot", ...snapshot },
+            filters: [],
+        } : undefined;
+    }
     if (
         !ts.isCallExpression(expression) ||
         !ts.isPropertyAccessExpression(expression.expression)
@@ -1616,6 +2745,81 @@ function analyzeSelectionExpression(
     }
     const base = analyzeSelectionExpression(receiver, checker, eventContext, functionContext);
     if (!base) return undefined;
+    if (method === "where") {
+        if (
+            base.resultType !== "player" ||
+            !functionContext ||
+            expression.arguments.length !== 2 ||
+            !ts.isIdentifier(expression.arguments[0]) ||
+            !isSdkSymbol(
+                checker.getSymbolAtLocation(expression.expression.name),
+                method,
+                "/players.d.ts",
+                checker,
+            )
+        ) {
+            throw unsupported(expression, "player variable selection filter");
+        }
+        const variable = storedVariableBinding(
+            checker.getSymbolAtLocation(expression.arguments[0]),
+            checker,
+            functionContext.variables,
+        );
+        if (!variable || variable.owner !== "player") {
+            throw unsupported(expression.arguments[0], "player variable selection filter");
+        }
+        const value = analyzeExpression(
+            expression.arguments[1],
+            [variable.valueType],
+            checker,
+            new Set(),
+            eventContext,
+            functionContext,
+        );
+        if (
+            variable.enumValues &&
+            (value.kind !== "string" || !variable.enumValues.includes(value.value))
+        ) {
+            throw unsupported(expression.arguments[1], "declared enum value");
+        }
+        return {
+            ...base,
+            filters: [...base.filters, {
+                operation: "select.FilterCondition",
+                arguments: [
+                    {
+                        kind: "player_variable",
+                        name: variable.name,
+                        scope: variable.scope,
+                        valueType: variable.valueType,
+                        receiver: "selection",
+                    },
+                    value,
+                ],
+            }],
+        };
+    }
+    if (method === "one") {
+        if (
+            base.resultType !== "player" ||
+            expression.arguments.length !== 0 ||
+            !isSdkSymbol(
+                checker.getSymbolAtLocation(expression.expression.name),
+                method,
+                "/players.d.ts",
+                checker,
+            )
+        ) {
+            throw unsupported(expression, "single player selection");
+        }
+        return {
+            ...base,
+            filters: [...base.filters, {
+                operation: "select.FilterRandom",
+                arguments: [{ kind: "number", value: 1 }],
+            }],
+        };
+    }
     const isRandom = method === "random";
     const isDistance = ["nearest", "nearestWith", "farthest", "farthestWith"].includes(method);
     if (
@@ -1836,14 +3040,313 @@ function getPropertyName(name: ts.PropertyName): string | undefined {
     return undefined;
 }
 
+type ExpectedValueType = ValueType | string;
+
+function sameValueType(left: ValueType, right: ValueType): boolean {
+    if (typeof left === "string" || typeof right === "string") return left === right;
+    if (left.kind !== right.kind) return false;
+    return left.kind === "list"
+        ? sameValueType(left.elementType, (right as ListValueType).elementType)
+        : sameValueType(left.valueType, (right as DictionaryValueType).valueType);
+}
+
+function valueTypeAssignable(source: ValueType, target: ValueType): boolean {
+    if (target === "any") return true;
+    if (typeof source === "string" || typeof target === "string") {
+        return source === target || (target === "component" && typeof source === "string" &&
+            ["text", "number", "boolean"].includes(source));
+    }
+    if (source.kind !== target.kind) return false;
+    return source.kind === "list"
+        ? valueTypeAssignable(source.elementType, (target as ListValueType).elementType)
+        : valueTypeAssignable(source.valueType, (target as DictionaryValueType).valueType);
+}
+
+function isListValueType(type: ValueType): type is ListValueType {
+    return typeof type !== "string" && type.kind === "list";
+}
+
+function isDictionaryValueType(type: ValueType): type is DictionaryValueType {
+    return typeof type !== "string" && type.kind === "dictionary";
+}
+
+interface CollectionOperation<T extends ListValueType | DictionaryValueType> {
+    method: string;
+    transformation: boolean;
+    resultType: (receiverType: T) => ValueType;
+}
+
+const listOperations: readonly CollectionOperation<ListValueType>[] = [
+    { method: "with", transformation: true, resultType: (receiverType) => receiverType },
+    { method: "appended", transformation: true, resultType: (receiverType) => receiverType },
+    { method: "concatenated", transformation: true, resultType: (receiverType) => receiverType },
+    { method: "slice", transformation: true, resultType: (receiverType) => receiverType },
+];
+
+const dictionaryOperations: readonly CollectionOperation<DictionaryValueType>[] = [
+    { method: "with", transformation: true, resultType: (receiverType) => receiverType },
+    { method: "without", transformation: true, resultType: (receiverType) => receiverType },
+    { method: "merged", transformation: true, resultType: (receiverType) => receiverType },
+    { method: "keys", transformation: false, resultType: () => ({ kind: "list", elementType: "text" }) },
+    {
+        method: "values",
+        transformation: false,
+        resultType: (receiverType) => ({ kind: "list", elementType: receiverType.valueType }),
+    },
+];
+
+type CollectionExpression =
+    | {
+          form: "index";
+          receiver: ts.Expression;
+          receiverType: ListValueType;
+          index: ts.Expression;
+          resultType: ValueType;
+      }
+    | {
+          form: "length" | "size";
+          receiver: ts.Expression;
+          receiverType: ListValueType | DictionaryValueType;
+          resultType: "number";
+          sdkMember: boolean;
+      }
+    | {
+          form: "method";
+          method: string;
+          receiver: ts.Expression;
+          receiverType: ListValueType | DictionaryValueType;
+          transformation: boolean;
+          arguments: readonly ts.Expression[];
+          resultType: ValueType;
+          sdkMember: boolean;
+      };
+
+function collectionExpression(
+    expression: ts.Expression,
+    checker: Checker,
+    context?: FunctionContext,
+): CollectionExpression | undefined {
+    if (ts.isElementAccessExpression(expression)) {
+        const receiverType = expressionValueType(expression.expression, checker, context);
+        if (!receiverType || !isListValueType(receiverType) || !expression.argumentExpression) return undefined;
+        return {
+            form: "index",
+            receiver: expression.expression,
+            receiverType,
+            index: expression.argumentExpression,
+            resultType: receiverType.elementType,
+        };
+    }
+    if (ts.isPropertyAccessExpression(expression) &&
+        (expression.name.text === "length" || expression.name.text === "size")) {
+        const member = expression.name.text;
+        const receiverType = expressionValueType(expression.expression, checker, context);
+        if (!receiverType || typeof receiverType === "string") return undefined;
+        if (member === "length" ? !isListValueType(receiverType) : !isDictionaryValueType(receiverType)) {
+            return undefined;
+        }
+        return {
+            form: member === "length" ? "length" : "size",
+            receiver: expression.expression,
+            receiverType,
+            resultType: "number",
+            sdkMember: isSdkSymbol(
+                checker.getSymbolAtLocation(expression.name), member, "/values/index.d.ts", checker,
+            ),
+        };
+    }
+    if (!ts.isCallExpression(expression) || !ts.isPropertyAccessExpression(expression.expression)) return undefined;
+    const method = expression.expression.name.text;
+    const receiver = expression.expression.expression;
+    const receiverType = expressionValueType(receiver, checker, context);
+    if (!receiverType || typeof receiverType === "string") return undefined;
+    const operation = isListValueType(receiverType)
+        ? listOperations.find((candidate) => candidate.method === method)
+        : dictionaryOperations.find((candidate) => candidate.method === method);
+    if (!operation) return undefined;
+    return {
+        form: "method",
+        method,
+        receiver,
+        receiverType,
+        transformation: operation.transformation,
+        arguments: expression.arguments,
+        resultType: isListValueType(receiverType)
+            ? (operation as CollectionOperation<ListValueType>).resultType(receiverType)
+            : (operation as CollectionOperation<DictionaryValueType>).resultType(receiverType),
+        sdkMember: isSdkSymbol(
+            checker.getSymbolAtLocation(expression.expression.name), method, "/values/index.d.ts", checker,
+        ),
+    };
+}
+
+type DictionaryConstructorForm =
+    | { kind: "empty" }
+    | { kind: "entries"; entries: readonly { key: string; value: ts.Expression }[] }
+    | { kind: "invalid"; reason: string };
+
+function dictionaryConstructorForm(call: ts.CallExpression): DictionaryConstructorForm {
+    if (call.arguments.length === 0) {
+        return call.typeArguments?.length === 1
+            ? { kind: "empty" }
+            : { kind: "invalid", reason: "explicitly typed empty dictionary" };
+    }
+    const entries = call.arguments[0];
+    if (call.arguments.length !== 1 || !ts.isObjectLiteralExpression(entries)) {
+        return { kind: "invalid", reason: "inline dictionary object constructor" };
+    }
+    return {
+        kind: "entries",
+        entries: entries.properties.map((property) => {
+            if (!ts.isPropertyAssignment(property) || ts.isComputedPropertyName(property.name)) {
+                throw unsupported(
+                    property,
+                    "plain dictionary property (no spreads, computed names, methods, or accessors)",
+                );
+            }
+            const key = getPropertyName(property.name);
+            if (key === undefined) throw unsupported(property.name, "string dictionary key");
+            return { key, value: property.initializer };
+        }),
+    };
+}
+
+function expressionValueType(
+    expression: ts.Expression,
+    checker: Checker,
+    context?: FunctionContext,
+): ValueType | undefined {
+    if (ts.isParenthesizedExpression(expression)) {
+        return expressionValueType(expression.expression, checker, context);
+    }
+    if (ts.isIdentifier(expression) && context) {
+        const symbol = checker.getSymbolAtLocation(expression);
+        const line = symbol ? context.lineVariables?.get(symbol.id) : undefined;
+        if (line) return line.valueType;
+        const parameter = symbol ? context.parameters.get(symbol.id) : undefined;
+        if (parameter) return parameter.type;
+    }
+    if (ts.isStringLiteralLikeNode(expression) || ts.isTemplateExpression(expression)) return "text";
+    if (analyzeNumber(expression) !== undefined) return "number";
+    if (expression.kind === ts.SyntaxKind.TrueKeyword || expression.kind === ts.SyntaxKind.FalseKeyword) return "boolean";
+    if (ts.isCallExpression(expression)) {
+        if (ts.isIdentifier(expression.expression)) {
+            const symbol = checker.getSymbolAtLocation(expression.expression);
+            if (isSdkSymbol(symbol, "list", "/values/index.d.ts", checker)) {
+                const explicit = expression.typeArguments?.[0];
+                if (explicit) return listValueTypeArgument(explicit, checker);
+                const elementTypes = expression.arguments.map((argument) =>
+                    expressionValueType(argument, checker, context));
+                if (elementTypes.length === 0 || !elementTypes[0] ||
+                    elementTypes.some((type) => !type || !sameValueType(type, elementTypes[0] as ValueType))) {
+                    return undefined;
+                }
+                return { kind: "list", elementType: elementTypes[0] };
+            }
+            if (isSdkSymbol(symbol, "dictionary", "/values/index.d.ts", checker)) {
+                const explicit = dictionaryValueTypeArgument(expression.typeArguments?.[0], checker);
+                if (explicit) return explicit;
+                const form = dictionaryConstructorForm(expression);
+                if (form.kind !== "entries" || form.entries.length === 0) return undefined;
+                const valueTypes = form.entries.map((entry) =>
+                    expressionValueType(entry.value, checker, context));
+                if (!valueTypes[0] || valueTypes.some((type) => !type ||
+                    !sameValueType(type, valueTypes[0] as ValueType))) {
+                    throw unsupported(expression, "dictionary with one recursive value type (use any for unions)");
+                }
+                return { kind: "dictionary", valueType: valueTypes[0] };
+            }
+        }
+        if (ts.isPropertyAccessExpression(expression.expression)) {
+            const property = expression.expression;
+            const gameValue = Object.values(targetGameValues).find((candidate) =>
+                candidate.method === property.name.text);
+            if (gameValue && expression.arguments.length === 0 && isSdkSymbol(
+                checker.getSymbolAtLocation(property.name),
+                gameValue.method,
+                "/generated/player-values.d.ts",
+                checker,
+            )) return gameValue.valueType;
+            if (expression.expression.name.text === "get" && ts.isIdentifier(expression.expression.expression) && context) {
+                const variable = storedVariableBinding(
+                    checker.getSymbolAtLocation(expression.expression.expression),
+                    checker,
+                    context.variables,
+                );
+                if (variable) return variable.valueType;
+            }
+        }
+    }
+    const access = collectionExpression(expression, checker, context);
+    if (access) return access.resultType;
+    const constant = resolveConstantInitializer(expression, checker, new Set());
+    return constant ? expressionValueType(constant, checker, context) : undefined;
+}
+
 function analyzeExpression(
     expression: ts.Expression,
-    expectedTypes: readonly string[],
+    expectedTypes: readonly ExpectedValueType[],
     checker: Checker,
     resolving = new Set<number>(),
     eventContext?: EventExpressionContext,
     functionContext?: FunctionContext,
 ): HighExpression {
+    if (ts.isParenthesizedExpression(expression)) {
+        return analyzeExpression(
+            expression.expression,
+            expectedTypes,
+            checker,
+            resolving,
+            eventContext,
+            functionContext,
+        );
+    }
+    const listExpression = analyzeListExpression(
+        expression,
+        expectedTypes,
+        checker,
+        resolving,
+        eventContext,
+        functionContext,
+    );
+    if (listExpression) return listExpression;
+    const dictionaryExpression = analyzeDictionaryExpression(
+        expression, expectedTypes, checker, resolving, eventContext, functionContext,
+    );
+    if (dictionaryExpression) return dictionaryExpression;
+    if (expectedTypes.some((type) => type === "number" || type === "component" || type === "any")) {
+        const arithmetic = analyzeArithmeticExpression(
+            expression,
+            checker,
+            resolving,
+            eventContext,
+            functionContext,
+        );
+        if (arithmetic) return arithmetic;
+    }
+    if (
+        ts.isTemplateExpression(expression) &&
+        expectedTypes.some((type) => type === "text" || type === "component" || type === "any")
+    ) {
+        const parts: HighExpression[] = [];
+        if (expression.head.text.length > 0) {
+            parts.push({ kind: "string", value: expression.head.text });
+        }
+        for (const span of expression.templateSpans) {
+            parts.push(analyzeExpression(
+                span.expression,
+                ["any"],
+                checker,
+                new Set(resolving),
+                eventContext,
+                functionContext,
+            ));
+            if (span.literal.text.length > 0) {
+                parts.push({ kind: "string", value: span.literal.text });
+            }
+        }
+        return { kind: "string_template", parts };
+    }
     if (ts.isIdentifier(expression) && functionContext) {
         const symbol = checker.getSymbolAtLocation(expression);
         const lineVariable = symbol
@@ -1874,29 +3377,321 @@ function analyzeExpression(
                 eventContext,
                 functionContext,
             );
-        } catch {
+        } catch (error) {
+            if (error instanceof Error && error.message.includes("runtime List spread")) throw error;
             // Try the next value kind accepted by this native input.
         }
     }
 
-    throw unsupported(expression, `${expectedTypes.join(" or ")} expression`);
+    throw unsupported(expression, `${expectedTypes.map(valueTypeName).join(" or ")} expression`);
+}
+
+function valueTypeName(type: ExpectedValueType): string {
+    return typeof type === "string" ? type : type.kind === "list"
+        ? `List<${valueTypeName(type.elementType)}>`
+        : `Dictionary<${valueTypeName(type.valueType)}>`;
+}
+
+function analyzeListExpression(
+    expression: ts.Expression,
+    expectedTypes: readonly ExpectedValueType[],
+    checker: Checker,
+    resolving: Set<number>,
+    eventContext?: EventExpressionContext,
+    functionContext?: FunctionContext,
+): HighExpression | undefined {
+    if (ts.isArrayLiteralExpression(expression)) {
+        const expectedList = expectedTypes.find((type): type is ListValueType =>
+            typeof type !== "string" && type.kind === "list");
+        if (!expectedList || expression.elements.some(ts.isSpreadElement)) return undefined;
+        return {
+            kind: "list",
+            elements: expression.elements.map((element) => analyzeExpression(
+                element,
+                [expectedList.elementType],
+                checker,
+                new Set(resolving),
+                eventContext,
+                functionContext,
+            )),
+            valueType: expectedList,
+        };
+    }
+    const inferred = expressionValueType(expression, checker, functionContext);
+    if (!inferred) return undefined;
+    if (isListValueType(inferred)) {
+        const stored = analyzeStoredVariableRead(expression, inferred, checker, functionContext);
+        if (stored && isPortableExpressionTypeAccepted(inferred, expectedTypes)) return stored;
+    }
+
+    const collection = collectionExpression(expression, checker, functionContext);
+    if (collection?.form === "length") {
+        if (!isPortableExpressionTypeAccepted(collection.resultType, expectedTypes) || !collection.sdkMember) {
+            return undefined;
+        }
+        return {
+            kind: "list_length",
+            list: analyzeExpression(collection.receiver, [collection.receiverType], checker, new Set(resolving), eventContext, functionContext),
+        };
+    }
+    if (collection?.form === "index") {
+        if (!isPortableExpressionTypeAccepted(collection.resultType, expectedTypes)) return undefined;
+        assertValidLiteralListBound(collection.index, "list index");
+        return {
+            kind: "list_index",
+            list: analyzeExpression(collection.receiver, [collection.receiverType], checker, new Set(resolving), eventContext, functionContext),
+            index: analyzeExpression(collection.index, ["number"], checker, new Set(resolving), eventContext, functionContext),
+            valueType: collection.receiverType.elementType,
+        };
+    }
+    if (ts.isCallExpression(expression) && ts.isIdentifier(expression.expression) &&
+        isSdkSymbol(checker.getSymbolAtLocation(expression.expression), "list", "/values/index.d.ts", checker)) {
+        if (!isListValueType(inferred) || !isPortableExpressionTypeAccepted(inferred, expectedTypes)) return undefined;
+        if (expression.arguments.length === 0 && !expression.typeArguments?.[0] &&
+            !expectedTypes.some((type) => typeof type !== "string" && type.kind === "list")) {
+            throw unsupported(expression, "typed empty list");
+        }
+        return {
+            kind: "list",
+            elements: expression.arguments.map((argument) => analyzeExpression(
+                argument,
+                [inferred.elementType],
+                checker,
+                new Set(resolving),
+                eventContext,
+                functionContext,
+            )),
+            valueType: inferred,
+        };
+    }
+    if (collection?.form === "method" && isListValueType(collection.receiverType)) {
+        const listType = collection.receiverType;
+        const args = collection.arguments;
+        if (!collection.sdkMember || !isPortableExpressionTypeAccepted(listType, expectedTypes)) return undefined;
+        const receiver = analyzeExpression(
+            collection.receiver,
+            [listType],
+            checker,
+            new Set(resolving),
+            eventContext,
+            functionContext,
+        );
+        if (collection.method === "with") {
+            if (args.length !== 2) throw unsupported(expression, "list with arguments");
+            assertValidLiteralListBound(args[0], "list index");
+            return {
+                kind: "list_with",
+                list: receiver,
+                index: analyzeExpression(args[0], ["number"], checker, new Set(resolving), eventContext, functionContext),
+                value: analyzeExpression(args[1], [listType.elementType], checker, new Set(resolving), eventContext, functionContext),
+                valueType: listType,
+            };
+        }
+        if (collection.method === "appended") {
+            return {
+                kind: "list_append",
+                list: receiver,
+                values: args.map((argument) => analyzeExpression(
+                    argument, [listType.elementType], checker, new Set(resolving), eventContext, functionContext,
+                )),
+                valueType: listType,
+            };
+        }
+        if (collection.method === "concatenated") {
+            return {
+                kind: "list_concat",
+                list: receiver,
+                lists: args.map((argument) => analyzeExpression(
+                    argument, [listType], checker, new Set(resolving), eventContext, functionContext,
+                )),
+                valueType: listType,
+            };
+        }
+        if (args.length > 2) throw unsupported(expression, "list slice arguments");
+        if (args[0] && !isUndefined(args[0], checker)) {
+            assertValidLiteralListBound(args[0], "list slice bound");
+        }
+        if (args[1] && !isUndefined(args[1], checker)) {
+            assertValidLiteralListBound(args[1], "list slice bound");
+        }
+        return {
+            kind: "list_slice",
+            list: receiver,
+            start: args[0] && !isUndefined(args[0], checker)
+                ? analyzeExpression(
+                    args[0], ["number"], checker, new Set(resolving), eventContext, functionContext,
+                )
+                : undefined,
+            end: args[1] && !isUndefined(args[1], checker)
+                ? analyzeExpression(
+                    args[1], ["number"], checker, new Set(resolving), eventContext, functionContext,
+                )
+                : undefined,
+            valueType: listType,
+        };
+    }
+    return undefined;
+}
+
+function analyzeDictionaryExpression(
+    expression: ts.Expression,
+    expectedTypes: readonly ExpectedValueType[],
+    checker: Checker,
+    resolving: Set<number>,
+    eventContext?: EventExpressionContext,
+    functionContext?: FunctionContext,
+): HighExpression | undefined {
+    const inferred = expressionValueType(expression, checker, functionContext);
+    if (inferred && isDictionaryValueType(inferred)) {
+        const stored = analyzeStoredVariableRead(expression, inferred, checker, functionContext);
+        if (stored && isPortableExpressionTypeAccepted(inferred, expectedTypes)) return stored;
+    }
+    if (ts.isObjectLiteralExpression(expression)) {
+        throw unsupported(expression, "dictionary(...) constructor; arbitrary objects are not runtime values");
+    }
+    if (ts.isCallExpression(expression) && ts.isIdentifier(expression.expression) &&
+        isSdkSymbol(checker.getSymbolAtLocation(expression.expression), "dictionary", "/values/index.d.ts", checker)) {
+        if (!inferred || !isDictionaryValueType(inferred) || !isPortableExpressionTypeAccepted(inferred, expectedTypes)) {
+            throw unsupported(expression, "dictionary with one recursive value type (use any for unions)");
+        }
+        const form = dictionaryConstructorForm(expression);
+        if (form.kind === "invalid") throw unsupported(expression, form.reason);
+        if (form.kind === "empty") return { kind: "dictionary", entries: [], valueType: inferred };
+        const entries = form.entries.map((entry) => ({
+            key: { kind: "string" as const, value: entry.key },
+            value: analyzeExpression(
+                entry.value, [inferred.valueType], checker, new Set(resolving), eventContext, functionContext,
+            ),
+        }));
+        return { kind: "dictionary", entries, valueType: inferred };
+    }
+    const collection = collectionExpression(expression, checker, functionContext);
+    if (collection?.form === "size") {
+        if (!isPortableExpressionTypeAccepted(collection.resultType, expectedTypes) || !collection.sdkMember) {
+            return undefined;
+        }
+        return {
+            kind: "dictionary_size",
+            dictionary: analyzeExpression(
+                collection.receiver, [collection.receiverType], checker, new Set(resolving), eventContext, functionContext,
+            ),
+        };
+    }
+    if (collection?.form !== "method" || !isDictionaryValueType(collection.receiverType) ||
+        !collection.sdkMember) return undefined;
+    const dictionaryType = collection.receiverType;
+    const args = collection.arguments;
+    const dictionary = analyzeExpression(
+        collection.receiver, [dictionaryType], checker, new Set(resolving), eventContext, functionContext,
+    );
+    const key = (argument: ts.Expression) => analyzeExpression(
+        argument, ["text"], checker, new Set(resolving), eventContext, functionContext,
+    );
+    if (collection.method === "keys") {
+        if (args.length !== 0 || !isPortableExpressionTypeAccepted(collection.resultType, expectedTypes)) return undefined;
+        return { kind: "dictionary_keys", dictionary };
+    }
+    if (collection.method === "values") {
+        if (args.length !== 0 || !isPortableExpressionTypeAccepted(collection.resultType, expectedTypes)) return undefined;
+        return { kind: "dictionary_values", dictionary, valueType: collection.resultType as ListValueType };
+    }
+    if (!isPortableExpressionTypeAccepted(dictionaryType, expectedTypes)) return undefined;
+    if (collection.method === "with") {
+        if (args.length !== 2) throw unsupported(expression, "dictionary with arguments");
+        return {
+            kind: "dictionary_with",
+            dictionary,
+            key: key(args[0]),
+            value: analyzeExpression(
+                args[1], [dictionaryType.valueType], checker, new Set(resolving), eventContext, functionContext,
+            ),
+            valueType: dictionaryType,
+        };
+    }
+    if (collection.method === "without") {
+        if (args.length !== 1) throw unsupported(expression, "dictionary without arguments");
+        return { kind: "dictionary_without", dictionary, key: key(args[0]), valueType: dictionaryType };
+    }
+    if (args.length !== 1) throw unsupported(expression, "dictionary merged argument");
+    return {
+        kind: "dictionary_merged",
+        dictionary,
+        dictionaries: args.map((argument) => analyzeExpression(
+            argument, [dictionaryType], checker, new Set(resolving), eventContext, functionContext,
+        )),
+        valueType: dictionaryType,
+    };
+}
+
+function analyzeArithmeticExpression(
+    expression: ts.Expression,
+    checker: Checker,
+    resolving: Set<number>,
+    eventContext?: EventExpressionContext,
+    functionContext?: FunctionContext,
+): import("@nocuft/dfir").HighArithmeticExpression | undefined {
+    if (
+        ts.isPrefixUnaryExpression(expression) &&
+        (expression.operator === ts.SyntaxKind.PlusToken ||
+            expression.operator === ts.SyntaxKind.MinusToken) &&
+        !ts.isNumericLiteral(expression.operand)
+    ) {
+        const operand = analyzeExpression(
+            expression.operand,
+            ["number"],
+            checker,
+            new Set(resolving),
+            eventContext,
+            functionContext,
+        );
+        return expression.operator === ts.SyntaxKind.PlusToken
+            ? { kind: "arithmetic", operation: "+", operands: [operand] }
+            : {
+                  kind: "arithmetic",
+                  operation: "-",
+                  operands: [{ kind: "number", value: 0 }, operand],
+              };
+    }
+    if (!ts.isBinaryExpression(expression)) return undefined;
+    const operation = (() => {
+        switch (expression.operatorToken.kind) {
+            case ts.SyntaxKind.PlusToken: return "+";
+            case ts.SyntaxKind.MinusToken: return "-";
+            case ts.SyntaxKind.AsteriskToken: return "x";
+            case ts.SyntaxKind.SlashToken: return "/";
+            case ts.SyntaxKind.PercentToken: return "%";
+            case ts.SyntaxKind.AsteriskAsteriskToken: return "Exponent";
+            default: return undefined;
+        }
+    })();
+    if (!operation) return undefined;
+    if (!(operation in structuralBindings.setVariable)) {
+        throw new Error(`Missing generated Set Variable action ${operation}`);
+    }
+    return {
+        kind: "arithmetic",
+        operation,
+        operands: [expression.left, expression.right].map((operand) =>
+            analyzeExpression(
+                operand,
+                ["number"],
+                checker,
+                new Set(resolving),
+                eventContext,
+                functionContext,
+            ),
+        ),
+    };
 }
 
 function analyzeExpressionAsType(
     expression: ts.Expression,
-    expectedType: string,
+    expectedType: ExpectedValueType,
     checker: Checker,
     resolving = new Set<number>(),
     eventContext?: EventExpressionContext,
     functionContext?: FunctionContext,
 ): HighExpression {
-    const plotVariable = analyzePlotVariableRead(
-        expression,
-        expectedType,
-        checker,
-        functionContext,
-    );
-    if (plotVariable) return plotVariable;
     const gameValue = analyzeTargetGameValueExpression(
         expression,
         expectedType,
@@ -1905,6 +3700,22 @@ function analyzeExpressionAsType(
         functionContext,
     );
     if (gameValue) return gameValue;
+    if (typeof expectedType !== "string") throw unsupported(expression, `${valueTypeName(expectedType)} expression`);
+    const selectionCount = analyzeSelectionCountExpression(
+        expression,
+        expectedType,
+        checker,
+        eventContext,
+        functionContext,
+    );
+    if (selectionCount) return selectionCount;
+    const storedVariable = analyzeStoredVariableRead(
+        expression,
+        expectedType,
+        checker,
+        functionContext,
+    );
+    if (storedVariable) return storedVariable;
     const eventField = analyzeEventFieldExpression(
         expression,
         expectedType,
@@ -2008,43 +3819,114 @@ function analyzeExpressionAsType(
         case "location":
             return analyzeLocation(expression, checker, resolving);
         case "item":
-            return analyzeItem(expression, checker);
+            return analyzeItem(
+                expression,
+                checker,
+                resolving,
+                eventContext,
+                functionContext,
+            );
     }
 
     throw unsupported(expression, `${expectedType} expression`);
 }
 
-function analyzePlotVariableRead(
+function analyzeSelectionCountExpression(
     expression: ts.Expression,
     expectedType: string,
     checker: Checker,
+    eventContext?: EventExpressionContext,
+    functionContext?: FunctionContext,
+): import("@nocuft/dfir").HighSelectionCountExpression | undefined {
+    if (
+        !ts.isCallExpression(expression) ||
+        expression.arguments.length !== 0 ||
+        !ts.isPropertyAccessExpression(expression.expression) ||
+        expression.expression.name.text !== "count" ||
+        !isPortableExpressionTypeAccepted("number", [expectedType]) ||
+        !isSdkSymbol(
+            checker.getSymbolAtLocation(expression.expression.name),
+            "count",
+            "/players.d.ts",
+            checker,
+        )
+    ) return undefined;
+    const selection = analyzeSelectionExpression(
+        expression.expression.expression,
+        checker,
+        eventContext,
+        functionContext,
+    );
+    if (!selection || selection.resultType !== "player") {
+        throw unsupported(expression.expression.expression, "player selection count receiver");
+    }
+    return { kind: "selection_count", selection };
+}
+
+function analyzeStoredVariableRead(
+    expression: ts.Expression,
+    expectedType: ExpectedValueType,
+    checker: Checker,
     context?: FunctionContext,
-): import("@nocuft/dfir").HighPlotVariableExpression | undefined {
+): import("@nocuft/dfir").HighPlotVariableExpression | import("@nocuft/dfir").HighPlayerVariableExpression | undefined {
     if (
         !context ||
         !ts.isCallExpression(expression) ||
-        expression.arguments.length !== 0 ||
         !ts.isPropertyAccessExpression(expression.expression) ||
         expression.expression.name.text !== "get" ||
         !ts.isIdentifier(expression.expression.expression)
     ) return undefined;
-    const symbol = checker.getSymbolAtLocation(expression.expression.expression);
-    const variable = symbol ? context.plotVariables.get(symbol.id) : undefined;
+    const variable = storedVariableBinding(
+        checker.getSymbolAtLocation(expression.expression.expression),
+        checker,
+        context.variables,
+    );
     if (!variable) return undefined;
+    const expectedCount = variable.owner === "player" ? 1 : 0;
+    if (expression.arguments.length !== expectedCount) {
+        throw unsupported(expression, "stored variable read arguments");
+    }
     if (!isPortableExpressionTypeAccepted(variable.valueType, [expectedType])) {
-        throw unsupported(expression, `${expectedType} plot variable`);
+        throw unsupported(expression, `${valueTypeName(expectedType)} stored variable`);
+    }
+    if (variable.owner === "player") {
+        const receiver = analyzePlayerArgument(expression.arguments[0], checker, context);
+        if (receiver.kind === "selection") {
+            const snapshot = receiver.value.filters.length === 0 &&
+                "kind" in receiver.value.source &&
+                receiver.value.source.kind === "selection_snapshot"
+                ? receiver.value.source
+                : undefined;
+            if (!snapshot || snapshot.cardinality !== "at_most_one") {
+                throw unsupported(expression.arguments[0], "at-most-one player snapshot variable target");
+            }
+            return {
+                kind: "player_variable",
+                name: variable.name,
+                scope: variable.scope,
+                valueType: variable.valueType,
+                receiver: snapshot,
+            };
+        }
+        return {
+            kind: "player_variable",
+            name: variable.name,
+            scope: variable.scope,
+            valueType: variable.valueType,
+            receiver: "current_player",
+        };
     }
     return {
         kind: "plot_variable",
         name: variable.name,
-        scope: "unsaved",
+        scope: variable.scope,
         valueType: variable.valueType,
     };
 }
 
 function analyzeTargetGameValueExpression(
     expression: ts.Expression,
-    expectedType: string,
+    expectedType: ExpectedValueType,
     checker: Checker,
     eventContext?: EventExpressionContext,
     functionContext?: FunctionContext,
@@ -2060,7 +3942,7 @@ function analyzeTargetGameValueExpression(
     );
     if (
         !binding ||
-        (binding.valueType !== expectedType && expectedType !== "any") ||
+        !isPortableExpressionTypeAccepted(binding.valueType, [expectedType]) ||
         !isSdkSymbol(
             checker.getSymbolAtLocation(expression.expression.name),
             method,
@@ -2079,18 +3961,33 @@ function analyzeTargetGameValueExpression(
         functionContext?.playerTargetSymbol &&
         ts.isIdentifier(receiver) &&
         checker.getSymbolAtLocation(receiver)?.id === functionContext.playerTargetSymbol.id;
-    if (!eventPlayer && !functionPlayer) return undefined;
+    const snapshot = ts.isIdentifier(receiver)
+        ? snapshotBinding(receiver, checker, functionContext)
+        : undefined;
+    if (snapshot?.cardinality === "many") {
+        throw unsupported(receiver, "at-most-one player snapshot game value receiver");
+    }
+    if (!eventPlayer && !functionPlayer && !snapshot) return undefined;
     return {
         kind: "game_value",
         value: binding.id,
         valueType: binding.valueType,
-        receiver: "current_player",
+        receiver: snapshot ? { kind: "selection_snapshot", ...snapshot } : "current_player",
     };
 }
 
-function isPortableExpressionTypeAccepted(type: FunctionValueType, expected: readonly string[]): boolean {
-    return expected.includes("any") || expected.includes(type)
-        || (expected.includes("component") && ["text", "number", "boolean"].includes(type));
+function isPortableExpressionTypeAccepted(
+    type: ValueType,
+    expected: readonly ExpectedValueType[],
+): boolean {
+    return expected.some((candidate) => {
+        if (candidate === "any") return true;
+        if (typeof type !== "string" || typeof candidate !== "string") {
+            return typeof type !== "string" && typeof candidate !== "string" && valueTypeAssignable(type, candidate);
+        }
+        return candidate === type ||
+            (candidate === "component" && ["text", "number", "boolean"].includes(type));
+    });
 }
 
 function analyzeEventFieldExpression(
@@ -2156,6 +4053,13 @@ function analyzeNumber(expression: ts.Expression): number | undefined {
     return value !== undefined && Number.isFinite(value) ? value : undefined;
 }
 
+function assertValidLiteralListBound(expression: ts.Expression, description: string): void {
+    const value = analyzeNumber(expression);
+    if (value !== undefined && (!Number.isInteger(value) || value < 0)) {
+        throw unsupported(expression, `non-negative integer literal ${description}`);
+    }
+}
+
 function analyzeLocation(
     expression: ts.Expression,
     checker: Checker,
@@ -2199,7 +4103,90 @@ function analyzeLocation(
 function analyzeItem(
     expression: ts.Expression,
     checker: Checker,
+    resolving: Set<number>,
+    eventContext?: EventExpressionContext,
+    functionContext?: FunctionContext,
 ): HighExpression {
+    if (
+        ts.isCallExpression(expression) &&
+        ts.isIdentifier(expression.expression) &&
+        isSdkSymbol(
+            checker.getSymbolAtLocation(expression.expression),
+            "itemSnapshot",
+            "/values/index.d.ts",
+            checker,
+        ) &&
+        expression.arguments.length === 1 &&
+        ts.isStringLiteralLikeNode(expression.arguments[0])
+    ) {
+        return { kind: "item_snapshot", snbt: expression.arguments[0].text };
+    }
+    if (
+        ts.isCallExpression(expression) &&
+        ts.isPropertyAccessExpression(expression.expression)
+    ) {
+        const method = expression.expression.name.text;
+        const binding = Object.values(itemTransformBindings).find(
+            (candidate) => candidate.method === method,
+        );
+        if (
+            binding &&
+            isSdkSymbol(
+                checker.getSymbolAtLocation(expression.expression.name),
+                method,
+                "/values/index.d.ts",
+                checker,
+            )
+        ) {
+            const receiver = analyzeExpression(
+                expression.expression.expression,
+                ["item"],
+                checker,
+                new Set(resolving),
+                eventContext,
+                functionContext,
+            );
+            const arguments_: HighExpression[] = [];
+            let sourceIndex = 0;
+            for (const input of binding.inputs) {
+                if (input.cardinality === "plural") {
+                    const values = expression.arguments.slice(sourceIndex);
+                    if (values.length < input.minimumLength) {
+                        throw unsupported(expression, `${method} item transform arguments`);
+                    }
+                    arguments_.push(...analyzePluralArguments(
+                        values,
+                        input.acceptedTypes,
+                        checker,
+                        eventContext,
+                        functionContext,
+                        input.minimumLength,
+                    ));
+                    sourceIndex = expression.arguments.length;
+                    continue;
+                }
+                const argument = expression.arguments[sourceIndex++];
+                if (!argument) throw unsupported(expression, `${method} item transform arguments`);
+                arguments_.push(analyzeExpression(
+                    argument,
+                    input.acceptedTypes,
+                    checker,
+                    new Set(resolving),
+                    eventContext,
+                    functionContext,
+                ));
+            }
+            if (sourceIndex !== expression.arguments.length) {
+                throw unsupported(expression, `${method} item transform arguments`);
+            }
+            return {
+                kind: "item_transform",
+                operation: binding.id,
+                receiver,
+                arguments: arguments_,
+            };
+        }
+    }
     if (
         !ts.isCallExpression(expression) ||
         !ts.isIdentifier(expression.expression) ||
@@ -2209,15 +4196,83 @@ function analyzeItem(
             "/values/index.d.ts",
             checker,
         ) ||
-        expression.arguments.length !== 1 ||
-        !ts.isStringLiteralLikeNode(expression.arguments[0])
+        expression.arguments.length < 1 ||
+        expression.arguments.length > 2
     ) {
         throw unsupported(expression, "item expression");
     }
 
-    return {
+    const material = analyzeExpression(
+        expression.arguments[0],
+        ["text"],
+        checker,
+        new Set(resolving),
+        eventContext,
+        functionContext,
+    );
+    let count: HighExpression = { kind: "number", value: 1 };
+    const options = expression.arguments[1];
+    if (options) {
+        if (!ts.isObjectLiteralExpression(options)) {
+            throw unsupported(options, "item options object");
+        }
+        let foundCount = false;
+        for (const property of options.properties) {
+            let initializer: ts.Expression;
+            let propertyName: string | undefined;
+            if (ts.isPropertyAssignment(property)) {
+                propertyName = getPropertyName(property.name);
+                initializer = property.initializer;
+            } else if (ts.isShorthandPropertyAssignment(property)) {
+                if (!ts.isIdentifier(property.name)) {
+                    throw unsupported(property, "item count option");
+                }
+                propertyName = property.name.text;
+                initializer = property.name;
+            } else {
+                throw unsupported(property, "item count option");
+            }
+            if (propertyName !== "count" || foundCount) {
+                throw unsupported(property, "item count option");
+            }
+            foundCount = true;
+            const shorthandParameter = ts.isShorthandPropertyAssignment(property)
+                ? [...(functionContext?.parameters.values() ?? [])].find(
+                    (parameter) => parameter.name === propertyName && parameter.type === "number",
+                )
+                : undefined;
+            const shorthandLine = ts.isShorthandPropertyAssignment(property)
+                ? [...(functionContext?.lineVariables?.values() ?? [])].findLast(
+                    (variable) => variable.sourceName === propertyName && variable.valueType === "number",
+                )
+                : undefined;
+            count = shorthandParameter
+                ? { kind: "parameter", name: shorthandParameter.name, valueType: "number" }
+                : shorthandLine
+                  ? { kind: "line_variable", name: shorthandLine.name, valueType: "number" }
+                : analyzeExpression(
+                    initializer,
+                    ["number"],
+                    checker,
+                    new Set(resolving),
+                    eventContext,
+                    functionContext,
+                );
+        }
+    }
+
+    if (count.kind === "number" && (!Number.isFinite(count.value) || !Number.isInteger(count.value) || count.value < 1)) {
+        throw unsupported(options ?? expression, "positive integer item count");
+    }
+
+    return material.kind === "string" && count.kind === "number" ? {
         kind: "item",
-        id: expression.arguments[0].text,
+        id: material.value,
+        count: count.value,
+    } : {
+        kind: "item_constructor",
+        material,
+        count,
     };
 }
 
@@ -2226,15 +4281,35 @@ function resolveConstantInitializer(
     checker: Checker,
     resolving: Set<number>,
 ): ts.Expression | undefined {
-    if (!ts.isIdentifier(expression)) {
-        return undefined;
+    if (ts.isPropertyAccessExpression(expression) || ts.isElementAccessExpression(expression)) {
+        const propertyName = ts.isPropertyAccessExpression(expression)
+            ? expression.name.text
+            : expression.argumentExpression && ts.isStringLiteralLikeNode(expression.argumentExpression)
+                ? expression.argumentExpression.text
+                : undefined;
+        const initializer = resolveConstantInitializer(expression.expression, checker, resolving);
+        const object = initializer && unwrapExpression(initializer);
+        if (propertyName !== undefined && object && ts.isObjectLiteralExpression(object)) {
+            const property = object.properties.find((candidate): candidate is ts.PropertyAssignment =>
+                ts.isPropertyAssignment(candidate) && getPropertyName(candidate.name) === propertyName);
+            if (property) return property.initializer;
+        }
     }
-
-    const symbol = checker.getSymbolAtLocation(expression);
+    const symbol = resolveAliasedSymbol(ts.isIdentifier(expression)
+        ? checker.getSymbolAtLocation(expression)
+        : ts.isPropertyAccessExpression(expression)
+            ? checker.getSymbolAtLocation(expression.name)
+            : ts.isElementAccessExpression(expression)
+                ? checker.getSymbolAtLocation(expression)
+                : undefined, checker);
     if (!symbol || resolving.has(symbol.id)) {
         return undefined;
     }
     const declaration = symbol.valueDeclaration?.resolve();
+    if (declaration && ts.isPropertyAssignment(declaration)) {
+        resolving.add(symbol.id);
+        return declaration.initializer;
+    }
     if (
         !declaration ||
         !ts.isVariableDeclaration(declaration) ||
@@ -2247,6 +4322,15 @@ function resolveConstantInitializer(
 
     resolving.add(symbol.id);
     return declaration.initializer;
+}
+
+function unwrapExpression(expression: ts.Expression): ts.Expression {
+    let current = expression;
+    while (ts.isAsExpression(current) || ts.isSatisfiesExpression(current)
+        || ts.isParenthesizedExpression(current)) {
+        current = current.expression;
+    }
+    return current;
 }
 
 function isUndefined(expression: ts.Expression, checker: Checker): boolean {
@@ -2263,7 +4347,8 @@ function unsupported(node: ts.Node, expected: string): Error {
         node.getStart(source),
     );
 
-    return new Error(
+    return new TypeScriptAnalysisError(
         `Unsupported ${expected} at ${source.fileName}:${position.line + 1}:${position.character + 1}`,
+        [resolve(source.fileName)],
     );
 }

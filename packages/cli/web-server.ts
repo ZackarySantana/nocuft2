@@ -1,7 +1,6 @@
 import { createServer, type Server, type ServerResponse } from "node:http";
 import { readFile } from "node:fs/promises";
 import type { AddressInfo } from "node:net";
-import { basename } from "node:path";
 import type { WebSnapshot } from "./web-state.js";
 
 export interface WebAssets {
@@ -51,9 +50,6 @@ export async function startWebServer(options: StartWebServerOptions): Promise<We
                 return;
             case "/api/state":
                 send(response, 200, "application/json; charset=utf-8", JSON.stringify(current));
-                return;
-            case "/api/source":
-                void sendSource(response, current, url.searchParams.get("path"));
                 return;
             case "/api/events": {
                 response.writeHead(200, {
@@ -116,33 +112,6 @@ export async function startWebServer(options: StartWebServerOptions): Promise<We
     };
 }
 
-async function sendSource(
-    response: ServerResponse,
-    snapshot: WebSnapshot,
-    path: string | null,
-): Promise<void> {
-    const allowed = path !== null && snapshot.projects.some((project) =>
-        project.sources.includes(path));
-    if (!allowed || path === null) {
-        sendText(response, 404, "Source file not found\n");
-        return;
-    }
-    try {
-        const contents = await readFile(path);
-        response.setHeader("Content-Disposition", attachmentHeader(basename(path)));
-        send(response, 200, "application/octet-stream", contents);
-    } catch {
-        sendText(response, 404, "Source file not found\n");
-    }
-}
-
-function attachmentHeader(filename: string): string {
-    const fallback = filename.replace(/[^A-Za-z0-9._-]/gu, "_") || "source";
-    const encoded = encodeURIComponent(filename).replace(/[!'()*]/gu, (character) =>
-        `%${character.codePointAt(0)?.toString(16).toUpperCase()}`);
-    return `attachment; filename="${fallback}"; filename*=UTF-8''${encoded}`;
-}
-
 async function loadWebAssets(): Promise<WebAssets> {
     const [html, script, styles] = await Promise.all([
         readFile(new URL("./web/index.html", import.meta.url), "utf8"),
@@ -195,7 +164,7 @@ function send(
     response: ServerResponse,
     status: number,
     contentType: string,
-    body: string | Buffer,
+    body: string,
 ): void {
     response.statusCode = status;
     response.setHeader("Content-Type", contentType);

@@ -1,20 +1,50 @@
 {
-    "name": "@nocuft/diamondfire",
+    "name": "nocuft",
     "version": "0.1.0",
+    "description": "Build and deploy typed DiamondFire projects",
+    "license": "MIT",
+    "keywords": [
+        "diamondfire",
+        "minecraft",
+        "typescript",
+        "compiler"
+    ],
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/ZackarySantana/nocuft2.git"
+    },
+    "homepage": "https://github.com/ZackarySantana/nocuft2#readme",
+    "bugs": {
+        "url": "https://github.com/ZackarySantana/nocuft2/issues"
+    },
     "type": "module",
     "files": [
         "dist"
     ],
     "types": "./dist/index.d.ts",
+    "bin": {
+        "nocuft": "./dist/bin/nocuft.js"
+    },
     "exports": {
         ".": {
             "types": "./dist/index.d.ts"
         }
     },
     "scripts": {
-        "build": "tsc"
+        "build": "tsc",
+        "assemble": "node scripts/assemble-package.mjs",
+        "prepack": "npm run build --prefix ../.."
+    },
+    "engines": {
+        "node": ">=22"
+    },
+    "dependencies": {
+        "typescript": "^7.0.2"
     },
     "devDependencies": {
-        "typescript": "latest"
+        "esbuild": "^0.28.1"
+    },
+    "publishConfig": {
+        "access": "public"
     }
 }

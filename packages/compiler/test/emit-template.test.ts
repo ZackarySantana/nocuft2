@@ -607,7 +607,7 @@ test("emits a bracketed main-hand item condition", () => {
                                 layout: "plural",
                                 minimumLength: 0,
                                 values: [
-                                    { kind: "item", id: "minecraft:mace" },
+                                    { kind: "item", id: "minecraft:mace", count: 1 },
                                 ],
                             },
                         ],
@@ -652,6 +652,53 @@ test("emits a bracketed main-hand item condition", () => {
                 direct: undefined,
             },
             { block: "bracket", action: undefined, direct: "close" },
+        ],
+    );
+});
+
+test("emits repeat conditions and else branches with balanced native brackets", () => {
+    const [emitted] = emitTemplates({
+        kind: "module",
+        templates: [{
+            kind: "function",
+            name: "flow",
+            body: [{
+                kind: "repeat",
+                block: "repeat",
+                action: "While",
+                subAction: ">",
+                arguments: [],
+                tags: [],
+                body: [{
+                    kind: "if",
+                    block: "if_var",
+                    action: "=",
+                    arguments: [],
+                    tags: [],
+                    body: [],
+                    elseBody: [],
+                }],
+            }],
+        }],
+    });
+
+    assert.deepEqual(
+        emitted.template.blocks.slice(1).map((block) => [
+            block.block,
+            block.action,
+            block.subAction,
+            block.direct,
+        ]),
+        [
+            ["repeat", "While", ">", undefined],
+            ["bracket", undefined, undefined, "open"],
+            ["if_var", "=", undefined, undefined],
+            ["bracket", undefined, undefined, "open"],
+            ["bracket", undefined, undefined, "close"],
+            ["else", undefined, undefined, undefined],
+            ["bracket", undefined, undefined, "open"],
+            ["bracket", undefined, undefined, "close"],
+            ["bracket", undefined, undefined, "close"],
         ],
     );
 });
@@ -1061,13 +1108,13 @@ test("does not shift after the first optional plural value", () => {
                                 index: 0,
                                 layout: "plural",
                                 minimumLength: 0,
-                                values: [{ kind: "item", id: "minecraft:stone" }],
+                                values: [{ kind: "item", id: "minecraft:stone", count: 1 }],
                             },
                             {
                                 index: 1,
                                 layout: "single",
                                 minimumLength: 1,
-                                values: [{ kind: "item", id: "minecraft:dirt" }],
+                                values: [{ kind: "item", id: "minecraft:dirt", count: 1 }],
                             },
                         ],
                         tags: [],

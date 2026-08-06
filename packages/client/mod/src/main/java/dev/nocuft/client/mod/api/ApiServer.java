@@ -7,6 +7,9 @@ import java.net.InetSocketAddress;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 import org.java_websocket.WebSocket;
 import org.java_websocket.handshake.ClientHandshake;
@@ -60,6 +63,8 @@ public final class ApiServer extends WebSocketServer {
     public static final class Session {
         private final WebSocket socket;
         private volatile Protocol.Agent peer;
+        private final AtomicLong nextId = new AtomicLong();
+        private final Map<String, CompletableFuture<Json.Obj>> pending = new ConcurrentHashMap<>();
 
         private Session(WebSocket socket) {
             this.socket = socket;
@@ -78,11 +83,46 @@ public final class ApiServer extends WebSocketServer {
                 socket.send(Protocol.write(frame));
             }
         }
+
+        public CompletableFuture<Json.Obj> request(Protocol.Method method, Json.Obj params) {
+            String id = "mod-" + nextId.incrementAndGet();
+            CompletableFuture<Json.Obj> result = new CompletableFuture<>();
+            pending.put(id, result);
+            send(new Protocol.Request(id, method, params));
+            result.orTimeout(30, TimeUnit.SECONDS).whenComplete((value, error) ->
+                pending.remove(id, result));
+            return result;
+        }
+
+        private void answer(Protocol.Frame frame) {
+            CompletableFuture<Json.Obj> request = pending.remove(frame.id());
+            if (request == null) {
+                return;
+            }
+            if (frame instanceof Protocol.Success success) {
+                request.complete(success.result());
+            } else if (frame instanceof Protocol.Failure failure) {
+                request.completeExceptionally(new IllegalStateException(failure.message()));
+            }
+        }
+
+        private void closePending(String reason) {
+            for (CompletableFuture<Json.Obj> request : pending.values()) {
+                request.completeExceptionally(new IllegalStateException(reason));
+            }
+            pending.clear();
+        }
     }
 
     /** How many build tools are attached right now. */
     public int connectionCount() {
         return sessions.size();
+    }
+
+    public Optional<Session> attachedTool() {
+        return sessions.values().stream()
+            .filter(session -> session.peer().map(peer -> peer.name().equals("nocuft")).orElse(false))
+            .findFirst();
     }
 
     public ApiServer(RequestHandler handler, Consumer<Session> onDisconnect) {
@@ -122,6 +162,7 @@ public final class ApiServer extends WebSocketServer {
     public void onClose(WebSocket socket, int code, String reason, boolean remote) {
         Session session = sessions.remove(socket);
         if (session != null) {
+            session.closePending("The attached Nocuft command stopped.");
             onDisconnect.accept(session);
         }
     }
@@ -135,6 +176,7 @@ public final class ApiServer extends WebSocketServer {
         LOGGER.warn("A Nocuft API connection failed: {}", error.toString());
         Session session = sessions.remove(socket);
         if (session != null) {
+            session.closePending("The attached Nocuft command disconnected.");
             onDisconnect.accept(session);
         }
     }
@@ -146,19 +188,16 @@ public final class ApiServer extends WebSocketServer {
             return;
         }
 
-        Protocol.Request request;
+        Protocol.Frame frame;
         try {
-            if (!(Protocol.read(message) instanceof Protocol.Request parsed)) {
-                // This client answers requests; it is not driven by responses.
-                socket.send(Protocol.write(new Protocol.Failure(
-                    "0",
-                    Protocol.Method.HELLO,
-                    Protocol.ErrorCode.PROTOCOL_MALFORMED,
-                    "This client answers requests and sends responses, not the other way round."
-                )));
+            frame = Protocol.read(message);
+            if (frame instanceof Protocol.Success || frame instanceof Protocol.Failure) {
+                session.answer(frame);
                 return;
             }
-            request = parsed;
+            if (!(frame instanceof Protocol.Request)) {
+                return;
+            }
         } catch (ProtocolException error) {
             // The id is unknown when the frame did not parse, so the answer
             // carries a placeholder rather than going unanswered.
@@ -170,6 +209,8 @@ public final class ApiServer extends WebSocketServer {
             )));
             return;
         }
+
+        Protocol.Request request = (Protocol.Request) frame;
 
         Reply reply = new SingleReply(session, request);
         try {

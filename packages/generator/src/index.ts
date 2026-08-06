@@ -33,13 +33,26 @@ import {
     renderFrontendEventBindings,
 } from "./render/events.js";
 import { normalizeSelectors, renderSelectorBindings } from "./selectors.js";
-import { normalizeTargetGameValues, renderPlayerValues, renderTargetGameValues } from "./game-values.js";
+import {
+    normalizeInternalGameValues,
+    normalizeTargetGameValues,
+    renderPlayerValues,
+    renderTargetGameValues,
+} from "./game-values.js";
 import {
     normalizeProcessBindings,
     renderCompilerProcessBindings,
     renderFrontendProcessBindings,
     renderProcessSdk,
 } from "./processes.js";
+import {
+    normalizeStructuralBindings,
+    renderStructuralBindings,
+} from "./structures.js";
+import {
+    normalizeItemTransformBindings,
+    renderItemTransformBindings,
+} from "./item-transforms.js";
 
 const actionDumpURL = new URL("./actiondump.json", import.meta.url);
 
@@ -57,8 +70,11 @@ const entityActions = parsed.actions.filter(isCurrentEntityAction);
 const gameActions = parsed.actions.filter(isCurrentGameAction);
 const controlActions = parsed.actions.filter(isCurrentControlAction);
 const events = normalizeEvents(parsed.actions, parsed.gameValues);
-const selectors = normalizeSelectors(parsed.actions);
 const targetGameValues = normalizeTargetGameValues(parsed.gameValues);
+const internalGameValues = normalizeInternalGameValues(parsed.gameValues);
+const structuralBindings = normalizeStructuralBindings(parsed.actions);
+const itemTransformBindings = normalizeItemTransformBindings(parsed.actions);
+const selectors = normalizeSelectors(parsed.actions, structuralBindings);
 
 if (playerActions.length === 0) {
     throw new Error("No PLAYER ACTION entries found");
@@ -165,7 +181,9 @@ const eventsOutput = renderEvents(events);
 const frontendEventBindingsOutput = renderFrontendEventBindings(events);
 const compilerEventBindingsOutput = renderCompilerEventBindings(events);
 const selectorBindingsOutput = renderSelectorBindings(selectors);
-const targetGameValuesOutput = renderTargetGameValues(targetGameValues);
+const targetGameValuesOutput = renderTargetGameValues(targetGameValues, internalGameValues);
+const structuralBindingsOutput = renderStructuralBindings(structuralBindings);
+const itemTransformBindingsOutput = renderItemTransformBindings(itemTransformBindings);
 const outputUrl = new URL(
     "../../sdk/generated/player-actions.ts",
     import.meta.url,
@@ -270,6 +288,22 @@ const compilerSelectorBindingsOutputUrl = new URL(
 const playerValuesOutputUrl = new URL("../../sdk/generated/player-values.ts", import.meta.url);
 const frontendGameValueBindingsOutputUrl = new URL("../../frontends/typescript/generated/game-value-bindings.ts", import.meta.url);
 const compilerGameValueBindingsOutputUrl = new URL("../../compiler/generated/game-value-bindings.ts", import.meta.url);
+const frontendStructuralBindingsOutputUrl = new URL(
+    "../../frontends/typescript/generated/structural-bindings.ts",
+    import.meta.url,
+);
+const compilerStructuralBindingsOutputUrl = new URL(
+    "../../compiler/generated/structural-bindings.ts",
+    import.meta.url,
+);
+const frontendItemTransformBindingsOutputUrl = new URL(
+    "../../frontends/typescript/generated/item-transform-bindings.ts",
+    import.meta.url,
+);
+const compilerItemTransformBindingsOutputUrl = new URL(
+    "../../compiler/generated/item-transform-bindings.ts",
+    import.meta.url,
+);
 
 await mkdir(new URL("./", playerIntrinsicsOutputUrl), { recursive: true });
 await mkdir(new URL("./", playerOperationsOutputUrl), { recursive: true });
@@ -321,6 +355,10 @@ await Promise.all([
     writeFile(playerValuesOutputUrl, renderPlayerValues(targetGameValues), "utf8"),
     writeFile(frontendGameValueBindingsOutputUrl, targetGameValuesOutput, "utf8"),
     writeFile(compilerGameValueBindingsOutputUrl, targetGameValuesOutput, "utf8"),
+    writeFile(frontendStructuralBindingsOutputUrl, structuralBindingsOutput, "utf8"),
+    writeFile(compilerStructuralBindingsOutputUrl, structuralBindingsOutput, "utf8"),
+    writeFile(frontendItemTransformBindingsOutputUrl, itemTransformBindingsOutput, "utf8"),
+    writeFile(compilerItemTransformBindingsOutputUrl, itemTransformBindingsOutput, "utf8"),
 ]);
 
 console.log(

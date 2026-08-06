@@ -26,10 +26,20 @@ export interface LowProcessTemplate {
 
 export type LowParameter = LowValueParameter | LowTargetParameter;
 
-export interface LowValueParameter {
+export type LowValueParameter = LowSingleValueParameter | LowRestValueParameter;
+
+export interface LowSingleValueParameter {
     kind: "value";
     name: string;
-    type: FunctionValueType;
+    type: ValueType;
+    rest?: false;
+}
+
+export interface LowRestValueParameter {
+    kind: "value";
+    name: string;
+    type: ListValueType;
+    rest: true;
 }
 
 export interface LowTargetParameter {
@@ -51,13 +61,25 @@ export type LowStatement =
     | LowFunctionCallStatement
     | LowStartProcessStatement
     | LowSelectObjectStatement
-    | LowIfStatement;
+    | LowIfStatement
+    | LowRepeatStatement;
 
 export interface LowIfStatement {
     kind: "if";
-    block: "if_player";
-    action: "IsHolding";
-    target: "current_player";
+    block: string;
+    action: string;
+    target?: LowTarget;
+    arguments: LowArgument[];
+    tags: LowTag[];
+    body: LowStatement[];
+    elseBody?: LowStatement[];
+}
+
+export interface LowRepeatStatement {
+    kind: "repeat";
+    block: string;
+    action: string;
+    subAction?: string;
     arguments: LowArgument[];
     tags: LowTag[];
     body: LowStatement[];
@@ -82,6 +104,7 @@ export interface LowStartProcessStatement {
 export interface LowSelectObjectStatement {
     kind: "select_object";
     action: string;
+    subAction?: string;
     arguments: LowArgument[];
     tags: LowTag[];
 }
@@ -123,23 +146,33 @@ export type LowValue =
     | LowItemValue
     | LowVariableValue;
 
-export type LowVariableValue = {
+export type LowVariableValue = LowLineVariableValue | LowStoredVariableValue;
+
+export type LowLineVariableValue = {
     kind: "variable";
     name: string;
-    scope: "line" | "unsaved" | "saved";
-    valueType: "location" | "number" | "text" | "boolean";
+    scope: "line";
+    valueType: ValueType;
+};
+
+export type LowStoredVariableValue = {
+    kind: "variable";
+    name: string;
+    scope: "unsaved" | "saved";
+    owner: "plot" | "player";
+    valueType: ValueType;
 };
 
 export type LowParameterValue = {
     kind: "parameter";
     name: string;
-    valueType: FunctionValueType;
+    valueType: ValueType;
 };
 
 export type LowGameValue = {
     kind: "game_value";
     name: string;
-    valueType: "text" | "number" | "component" | "location" | "item" | "list" | "vector";
+    valueType: ValueType | "list" | "vector";
     target: string;
 };
 
@@ -170,10 +203,9 @@ export type LowLocationValue = {
     z: number;
 };
 
-export type LowItemValue = {
-    kind: "item";
-    id: string;
-};
+export type LowItemValue =
+    | { kind: "item"; id: string; count: number; snbt?: never }
+    | { kind: "item"; snbt: string; id?: never; count?: never };
 
 export interface LowTag {
     id: string;
@@ -184,4 +216,4 @@ export interface LowTag {
         slot: number;
     };
 }
-import type { FunctionValueType } from "./high.js";
+import type { ListValueType, ValueType } from "./high.js";

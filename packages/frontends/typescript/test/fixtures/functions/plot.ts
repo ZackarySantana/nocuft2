@@ -9,7 +9,7 @@ import {
     type Location,
     type PlayerTarget,
     type SoundInput,
-} from "@nocuft/diamondfire";
+} from "nocuft";
 
 function useAll(
     message: string,

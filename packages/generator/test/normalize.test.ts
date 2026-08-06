@@ -25,6 +25,7 @@ import {
     renderFrontendEventBindings,
 } from "../src/render/events.js";
 import {
+    normalizeInternalGameValues,
     normalizeTargetGameValues,
     renderPlayerValues,
 } from "../src/game-values.js";
@@ -37,6 +38,7 @@ import {
     normalizeProcessBindings,
     renderProcessSdk,
 } from "../src/processes.js";
+import { normalizeStructuralBindings } from "../src/structures.js";
 
 const source = await readFile(
     new URL("../src/actiondump.json", import.meta.url),
@@ -100,6 +102,250 @@ test("generates control wait and process options from DiamondFire metadata", () 
     assert.match(renderProcessSdk(processes), /"dontCopy"/);
 });
 
+test("generates curated structural metadata", () => {
+    const bindings = normalizeStructuralBindings(actionDump.actions);
+
+    assert.equal(bindings.setVariable.x.native.action, "x");
+    assert.equal(bindings.setVariable.String.tags[0].id, "text_value_merging");
+    assert.equal(bindings.setVariable.String.tags[0].defaultOption, "no_spaces");
+    assert.equal(bindings.ifVariable[">="].native.block, "if_var");
+    assert.deepEqual(
+        bindings.repeat.Range.inputs.map((input) => [input.native.index, input.cardinality]),
+        [[0, "single"], [1, "single"], [2, "single"], [3, "single"]],
+    );
+    assert.equal(bindings.repeat.While.native.action, "While");
+    assert.equal(bindings.repeat.DoWhile.native.action, "DoWhile");
+    assert.equal(bindings.repeat.Forever.native.action, "Forever");
+    assert.equal(bindings.else.native.block, "else");
+
+    assert.deepEqual(
+        [
+            "CreateList",
+            "GetListValue",
+            "SetListValue",
+            "AppendValue",
+            "AppendList",
+            "TrimList",
+            "ListLength",
+        ].map((action) => bindings.setVariable[action]?.native),
+        [
+            "CreateList",
+            "GetListValue",
+            "SetListValue",
+            "AppendValue",
+            "AppendList",
+            "TrimList",
+            "ListLength",
+        ].map((action) => ({ block: "set_var", action })),
+    );
+    assert.deepEqual(bindings.setVariable.CreateList.inputs, [
+        {
+            id: "variable_to_set",
+            acceptedTypes: ["variable"],
+            native: { index: 0 },
+            cardinality: "single",
+            optional: false,
+        },
+        {
+            id: "value_list",
+            acceptedTypes: ["any"],
+            native: { index: 1 },
+            cardinality: "plural",
+            minimumLength: 0,
+        },
+    ]);
+    assert.deepEqual(
+        bindings.setVariable.GetListValue.inputs.map((input) => input.acceptedTypes),
+        [["variable"], ["list"], ["number"]],
+    );
+    assert.deepEqual(
+        bindings.setVariable.SetListValue.inputs.map((input) => input.acceptedTypes),
+        [["variable"], ["number"], ["any"]],
+    );
+    assert.deepEqual(bindings.setVariable.AppendValue.inputs[1], {
+        id: "values_to_append",
+        acceptedTypes: ["any"],
+        native: { index: 1 },
+        cardinality: "plural",
+        minimumLength: 1,
+    });
+    assert.deepEqual(bindings.setVariable.AppendList.inputs[1], {
+        id: "lists_to_append",
+        acceptedTypes: ["list"],
+        native: { index: 1 },
+        cardinality: "plural",
+        minimumLength: 1,
+    });
+    assert.deepEqual(
+        bindings.setVariable.TrimList.inputs.map((input) =>
+            input.cardinality === "single" ? input.optional : input.minimumLength
+        ),
+        [false, true, false, true],
+    );
+    assert.deepEqual(
+        bindings.setVariable.ListLength.inputs.map((input) => input.acceptedTypes),
+        [["variable"], ["list"]],
+    );
+    assert.deepEqual(bindings.repeat.ForEach, {
+        native: { block: "repeat", action: "ForEach" },
+        inputs: [
+            {
+                id: "gets_the_current_value_each_iteration",
+                acceptedTypes: ["variable"],
+                native: { index: 0 },
+                cardinality: "single",
+                optional: false,
+            },
+            {
+                id: "list_to_repeat_through",
+                acceptedTypes: ["list"],
+                native: { index: 1 },
+                cardinality: "single",
+                optional: false,
+            },
+        ],
+        tags: [
+            {
+                id: "allow_list_changes",
+                defaultOption: "true",
+                options: ["true", "false_copy_list"],
+                native: {
+                    name: "Allow List Changes",
+                    slot: 26,
+                    options: {
+                        true: "True",
+                        false_copy_list: "False (copy list)",
+                    },
+                },
+            },
+        ],
+    });
+
+    assert.deepEqual(
+        Object.fromEntries(
+            [
+                "CreateDict",
+                "GetDictValue",
+                "SetDictValue",
+                "GetDictSize",
+                "GetDictKeys",
+                "GetDictValues",
+                "AppendDict",
+                "RemoveDictEntry",
+            ].map((action) => [action, bindings.setVariable[action]]),
+        ),
+        {
+            CreateDict: structuralBinding("set_var", "CreateDict", [
+                structuralInput("variable_to_set", "variable", 0),
+                structuralInput("key_list", "list", 1, true),
+                structuralInput("value_list", "list", 2, true),
+            ]),
+            GetDictValue: structuralBinding("set_var", "GetDictValue", [
+                structuralInput("variable_to_set", "variable", 0),
+                structuralInput("dictionary_to_pull_from", "dict", 1),
+                structuralInput("key", "text", 2),
+            ]),
+            SetDictValue: structuralBinding("set_var", "SetDictValue", [
+                structuralInput("dictionary_to_add_to", "variable", 0),
+                structuralInput("key", "text", 1),
+                structuralInput("value", "any", 2),
+            ]),
+            GetDictSize: structuralBinding("set_var", "GetDictSize", [
+                structuralInput("variable_to_set", "variable", 0),
+                structuralInput("dictionary_to_measure", "dict", 1),
+            ]),
+            GetDictKeys: structuralBinding("set_var", "GetDictKeys", [
+                structuralInput("variable_to_set", "variable", 0),
+                structuralInput("dictionary_to_pull_from", "dict", 1),
+            ]),
+            GetDictValues: structuralBinding("set_var", "GetDictValues", [
+                structuralInput("variable_to_set", "variable", 0),
+                structuralInput("dictionary_to_pull_from", "dict", 1),
+            ]),
+            AppendDict: structuralBinding("set_var", "AppendDict", [
+                structuralInput("dictionary_to_add_to", "variable", 0),
+                structuralInput("dictionary_to_append", "dict", 1),
+            ]),
+            RemoveDictEntry: structuralBinding("set_var", "RemoveDictEntry", [
+                structuralInput("dictionary_to_change", "variable", 0),
+                structuralInput("key_to_remove", "text", 1),
+                structuralPluralInput("expected_values", "any", 2, 0),
+            ]),
+        },
+    );
+    assert.deepEqual(bindings.repeat.ForEachEntry, structuralBinding(
+        "repeat",
+        "ForEachEntry",
+        [
+            structuralInput("gets_the_current_key_each_iteration", "variable", 0),
+            structuralInput("gets_the_current_value_each_iteration", "variable", 1),
+            structuralInput("dictionary_to_repeat_through", "dict", 2),
+        ],
+    ));
+    assert.deepEqual(bindings.ifVariable.DictHasKey, structuralBinding(
+        "if_var",
+        "DictHasKey",
+        [
+            structuralInput("dictionary_to_check", "dict", 0),
+            structuralInput("key_to_look_for", "text", 1),
+        ],
+    ));
+});
+
+test("rejects missing and duplicate curated structural actions", () => {
+    const createDict = actionDump.actions.find(
+        (action) =>
+            action.codeblockName === "SET VARIABLE" &&
+            action.name.trim() === "CreateDict" &&
+            action.legacyReplacement === undefined,
+    );
+    assert.ok(createDict);
+
+    assert.throws(
+        () => normalizeStructuralBindings(
+            actionDump.actions.filter((action) => action !== createDict),
+        ),
+        /Missing current SET VARIABLE \/ CreateDict/,
+    );
+    assert.throws(
+        () => normalizeStructuralBindings([...actionDump.actions, { ...createDict }]),
+        /Duplicate current SET VARIABLE \/ CreateDict/,
+    );
+});
+
+function structuralBinding(block: string, action: string, inputs: unknown[]) {
+    return {
+        native: { block, action },
+        inputs,
+        tags: [],
+    };
+}
+
+function structuralInput(id: string, type: string, index: number, optional = false) {
+    return {
+        id,
+        acceptedTypes: [type],
+        native: { index },
+        cardinality: "single",
+        optional,
+    };
+}
+
+function structuralPluralInput(
+    id: string,
+    type: string,
+    index: number,
+    minimumLength: number,
+) {
+    return {
+        id,
+        acceptedTypes: [type],
+        native: { index },
+        cardinality: "plural",
+        minimumLength,
+    };
+}
+
 test("generates exact player target game values", () => {
     const values = normalizeTargetGameValues(actionDump.gameValues);
 
@@ -112,20 +358,46 @@ test("generates exact player target game values", () => {
         native: { name: "Main Hand Item" },
     });
     assert.equal(values.offHandItem.native.name, "Off Hand Item");
+    assert.deepEqual(values.inventoryMenuItems.valueType, { kind: "list", elementType: "item" });
     assert.equal(values.location.valueType, "location");
+    assert.equal(values.name.valueType, "component");
+    assert.equal(values.name.native.name, "Name ");
+    assert.equal(values.uuid.valueType, "text");
     assert.equal("mainHand" in values, false);
     const sdk = renderPlayerValues(values);
     assert.match(sdk, /mainHandItem\(\): Item;/);
     assert.match(sdk, /offHandItem\(\): Item;/);
+    assert.match(sdk, /inventoryMenuItems\(\): List<Item>;/);
+    assert.match(sdk, /name\(\): ComponentInput;/);
+    assert.match(sdk, /uuid\(\): string;/);
 });
 
-test("projects selector alternatives into distinct public bindings", () => {
-    const selectors = normalizeSelectors(actionDump.actions);
+test("generates internal selection game values", () => {
+    const values = normalizeInternalGameValues(actionDump.gameValues);
+    assert.deepEqual(values.selection_target_uuids, {
+        id: "selection_target_uuids",
+        valueType: { kind: "list", elementType: "text" },
+        description: "Gets the UUID of each target in the selection.",
+        native: { name: "Selection Target UUIDs" },
+    });
+    assert.deepEqual(values.selection_size, {
+        id: "selection_size",
+        valueType: "number",
+        description: "Gets the amount of targets in the selection.",
+        native: { name: "Selection Size" },
+    });
+});
+
+test("projects selector alternatives and composed conditions into public bindings", () => {
+    const structures = normalizeStructuralBindings(actionDump.actions);
+    const selectors = normalizeSelectors(actionDump.actions, structures);
     const byUuid = selectors.find((selector) => selector.id === "select.EntityUUID");
     const named = selectors.find((selector) => selector.id === "select.EntityName");
+    const condition = selectors.find((selector) => selector.id === "select.FilterCondition");
 
     assert.ok(byUuid);
     assert.ok(named);
+    assert.ok(condition);
     assert.equal(byUuid.method, "byUuid");
     assert.deepEqual(byUuid.native.arguments, [
         {
@@ -144,6 +416,23 @@ test("projects selector alternatives into distinct public bindings", () => {
             optional: false,
         },
     ]);
+    assert.equal(condition.native.action, "FilterCondition");
+    assert.equal(condition.native.subAction, "=");
+    assert.deepEqual(condition.native.arguments, [
+        {
+            index: 0,
+            type: "any",
+            cardinality: "single",
+            optional: false,
+        },
+        {
+            index: 1,
+            type: "any",
+            cardinality: "plural",
+            optional: false,
+        },
+    ]);
+    assert.deepEqual(condition.native.tags, []);
 
     const rendered = renderSelectorBindings(selectors);
     assert.match(
@@ -151,6 +440,19 @@ test("projects selector alternatives into distinct public bindings", () => {
         /"select\.EntityName"[\s\S]*?"arguments": \[[\s\S]*?"index": 2,[\s\S]*?"type": "component"/,
     );
     assert.doesNotMatch(rendered, /"argumentIndexes"/);
+});
+
+test("requires FilterCondition to allow IF VARIABLE subactions", () => {
+    const actions = actionDump.actions.map((action) =>
+        action.name === "FilterCondition" && action.codeblockName === "SELECT OBJECT"
+            ? { ...action, subActionBlocks: ["if_player"] }
+            : action,
+    );
+
+    assert.throws(
+        () => normalizeSelectors(actions, normalizeStructuralBindings(actions)),
+        /SELECT OBJECT \/ FilterCondition does not allow if_var/,
+    );
 });
 
 test("normalizes and renders supported events", () => {

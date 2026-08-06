@@ -1,5 +1,9 @@
 {
   "format": "nocuft-project",
   "version": 1,
-  "id": "7b310fbc-8053-4128-b6f6-c0fb8cd15a73"
+  "id": "7b310fbc-8053-4128-b6f6-c0fb8cd15a73",
+  "name": "hello",
+  "language": "typescript",
+  "entry": "plot.ts",
+  "module": "examples.hello"
 }

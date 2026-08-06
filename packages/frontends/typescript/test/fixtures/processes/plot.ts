@@ -1,4 +1,4 @@
-import { control, events, players, process } from "@nocuft/diamondfire";
+import { control, events, players, process } from "nocuft";
 
 export const countdown = process.createWith(
     { isHidden: true },

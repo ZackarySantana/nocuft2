@@ -1,14 +1,14 @@
-import type { Player } from "../players";
+import type { PlayerTarget } from "../players";
 import type { VariableFactory } from "./variables";
 
 export interface PlayerVariables {
-    readonly saved: VariableFactory<Player>;
-    readonly game: VariableFactory<Player>;
+    readonly saved: VariableFactory<PlayerTarget>;
+    readonly game: VariableFactory<PlayerTarget>;
 }
 
-export interface PlayerVariable<T, Target> {
-    get(player: Target): T;
-    set(player: Target, value: T): void;
-    clear(player: Target): void;
+export interface PlayerVariable<T> {
+    get(player: PlayerTarget): T;
+    set(player: PlayerTarget, value: T): void;
+    clear(player: PlayerTarget): void;
     clearAll(): void;
 }

@@ -1,4 +1,4 @@
-import { events, plot } from "@nocuft/diamondfire";
+import { events, plot } from "nocuft";
 
 const phase = plot.var.game.enum("phase", "lobby", "arena", "ended");
 

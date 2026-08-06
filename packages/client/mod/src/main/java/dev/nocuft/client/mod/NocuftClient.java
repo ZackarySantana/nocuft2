@@ -12,6 +12,7 @@ import dev.nocuft.client.mod.plot.Scanner;
 import dev.nocuft.client.mod.plot.PlotReader;
 import dev.nocuft.client.mod.plot.PlotTracker;
 import dev.nocuft.client.mod.ui.NocuftScreen;
+import dev.nocuft.client.mod.ui.ItemCaptureScreen;
 import dev.nocuft.client.plot.Location;
 import dev.nocuft.client.plan.Bundle;
 import dev.nocuft.client.plan.BundleException;
@@ -26,6 +27,10 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import com.mojang.brigadier.arguments.StringArgumentType;
+import com.mojang.serialization.DynamicOps;
+import net.minecraft.SharedConstants;
+import net.minecraft.ChatFormatting;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.command.v2.ClientCommands;
 import net.fabricmc.fabric.api.client.command.v2.ClientCommandRegistrationCallback;
@@ -34,6 +39,8 @@ import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
+import net.minecraft.nbt.NbtOps;
+import net.minecraft.world.item.ItemStack;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -87,12 +94,22 @@ public final class NocuftClient implements ClientModInitializer {
         });
 
         ClientLifecycleEvents.CLIENT_STOPPING.register(client -> stop());
-        ClientCommandRegistrationCallback.EVENT.register((dispatcher, access) ->
+        ClientCommandRegistrationCallback.EVENT.register((dispatcher, access) -> {
+            var nameArgument = ClientCommands.argument("name", StringArgumentType.word())
+                .executes(context -> captureHeldItem(
+                    StringArgumentType.getString(context, "name")
+                ));
+            var captureCommand = ClientCommands.literal("capture").then(nameArgument);
+            var itemsCommand = ClientCommands.literal("items").then(captureCommand);
+            var helpCommand = ClientCommands.literal("help").executes(context -> showHelp());
             dispatcher.register(ClientCommands.literal(MOD_ID)
                 .executes(context -> {
                     openLater(new NocuftScreen());
                     return 1;
-                })));
+                })
+                .then(itemsCommand)
+                .then(helpCommand));
+        });
 
         LOGGER.info("Nocuft {} ready on port {}.", VERSION, ApiServer.PORT);
     }
@@ -108,6 +125,128 @@ public final class NocuftClient implements ClientModInitializer {
         } catch (InterruptedException error) {
             Thread.currentThread().interrupt();
         }
+    }
+
+    private static int captureHeldItem(String name) {
+        Minecraft game = Minecraft.getInstance();
+        if (game.player == null || game.level == null) {
+            warn("Join a world before capturing an item.");
+            return 0;
+        }
+        if (!name.matches("[a-z][a-z0-9-]{0,63}")) {
+            warn("Item names use lowercase letters, numbers, and hyphens.");
+            return 0;
+        }
+        ItemStack stack = game.player.getMainHandItem();
+        if (stack.isEmpty()) {
+            warn("Hold the item to capture in your main hand.");
+            return 0;
+        }
+        Optional<ApiServer.Session> tool = server.attachedTool();
+        if (tool.isEmpty()) {
+            warn("Run nocuft gui before capturing an item.");
+            return 0;
+        }
+        String snbt;
+        try {
+            DynamicOps<net.minecraft.nbt.Tag> ops = game.level.registryAccess()
+                .createSerializationContext(NbtOps.INSTANCE);
+            snbt = ItemStack.CODEC.encodeStart(ops, stack).getOrThrow().toString();
+        } catch (RuntimeException error) {
+            fail("The held item could not be serialized: " + error.getMessage());
+            return 0;
+        }
+        requestItemCapture(tool.get(), name, snbt, "preview", 0);
+        return 1;
+    }
+
+    private static int showHelp() {
+        tell("/nocuft - Open the build selection screen.");
+        tell("/nocuft help - Show these commands.");
+        tell("/nocuft items capture <name> - Capture the item in your main hand.");
+        return 1;
+    }
+
+    public static void completeItemCapture(
+        String name,
+        String snbt,
+        String action,
+        int expectedVersion
+    ) {
+        Optional<ApiServer.Session> tool = server.attachedTool();
+        if (tool.isEmpty()) {
+            fail("The Nocuft command stopped before the item was saved.");
+            return;
+        }
+        requestItemCapture(tool.get(), name, snbt, action, expectedVersion);
+    }
+
+    private static void requestItemCapture(
+        ApiServer.Session tool,
+        String name,
+        String snbt,
+        String action,
+        int expectedVersion
+    ) {
+        var version = SharedConstants.getCurrentVersion();
+        Json.Obj params = CanonicalJson.object(
+            "name", new Json.Str(name),
+            "snbt", new Json.Str(snbt),
+            "action", new Json.Str(action),
+            "expectedVersion", new Json.Num(expectedVersion),
+            "metadata", CanonicalJson.object(
+                "minecraft", new Json.Str(version.name()),
+                "data", new Json.Num(version.dataVersion().version()),
+                "registries", new Json.Str(version.id())
+            )
+        );
+        tool.request(Protocol.Method.ITEM_CAPTURE, params).whenComplete((result, error) -> {
+            if (error != null) {
+                fail("Item capture failed: " + error.getMessage());
+                return;
+            }
+            String state = jsonString(result, "state");
+            int revision = jsonNumber(result, "version");
+            switch (state) {
+                case "unchanged" -> {
+                    succeed(name + " is unchanged at v" + revision + ".");
+                }
+                case "created" -> {
+                    int updated = jsonNumber(result, "updatedProjects");
+                    int outdated = jsonNumber(result, "outdatedProjects");
+                    if (updated > 0) {
+                        succeed("Created " + name + " v" + revision + " and updated " + updated
+                            + (updated == 1 ? " project." : " projects."));
+                    } else if (outdated > 0) {
+                        succeed("Created " + name + " v" + revision + ". " + outdated
+                            + (outdated == 1 ? " project is" : " projects are") + " now outdated.");
+                    } else {
+                        succeed("Created " + name + " v" + revision + ".");
+                    }
+                }
+                case "confirm" -> openLater(new ItemCaptureScreen(
+                    name,
+                    snbt,
+                    jsonNumber(result, "currentVersion"),
+                    jsonNumber(result, "nextVersion"),
+                    jsonNumber(result, "installedProjects"),
+                    jsonBoolean(result, "updateAllAvailable")
+                ));
+                default -> fail("Item capture returned an unknown result.");
+            }
+        });
+    }
+
+    private static String jsonString(Json.Obj object, String key) {
+        return object.members().get(key) instanceof Json.Str value ? value.value() : "";
+    }
+
+    private static int jsonNumber(Json.Obj object, String key) {
+        return object.members().get(key) instanceof Json.Num value ? (int) value.value() : 0;
+    }
+
+    private static boolean jsonBoolean(Json.Obj object, String key) {
+        return object.members().get(key) instanceof Json.Bool value && value.value();
     }
 
     /** Answers one request. Runs on the API thread, never the client thread. */
@@ -142,6 +281,10 @@ public final class NocuftClient implements ClientModInitializer {
                 openLater(new NocuftScreen());
                 reply.ok(CanonicalJson.object());
             }
+            case ITEM_CAPTURE -> reply.fail(
+                Protocol.ErrorCode.PROTOCOL_UNKNOWN_METHOD,
+                "item.capture is initiated by the mod, not by an attached tool."
+            );
         }
     }
 
@@ -164,7 +307,7 @@ public final class NocuftClient implements ClientModInitializer {
             requests.add(new Planner.Request(bundle.projectId(), units));
         }
         if (requests.isEmpty()) {
-            tell("Nothing is ticked, so nothing was applied.");
+            warn("Nothing is ticked, so nothing was applied.");
             return 0;
         }
         Thread worker = new Thread(
@@ -233,7 +376,7 @@ public final class NocuftClient implements ClientModInitializer {
                 // means the plot claims to carry a build and cannot say which,
                 // which is exactly the state this client exists to prevent.
                 LOGGER.warn("The manifest on this plot could not be read", error);
-                tell("This plot has a Nocuft manifest that could not be read.");
+                fail("This plot has a Nocuft manifest that could not be read.");
             }
         }, "nocuft-manifest");
         worker.setDaemon(true);
@@ -380,7 +523,7 @@ public final class NocuftClient implements ClientModInitializer {
         @Override
         public void progress(Protocol.Phase phase, int done, int total, Optional<String> detail) {
             if (done > 0 && (done == total || done % 5 == 0)) {
-                tell(phase.wire() + " " + done + "/" + total);
+                NocuftClient.progress(phase.wire() + " " + done + "/" + total);
             }
         }
 
@@ -388,12 +531,12 @@ public final class NocuftClient implements ClientModInitializer {
         public void ok(Json.Obj result) {
             Json placed = result.members().get("placed");
             int count = placed instanceof Json.Arr list ? list.elements().size() : 0;
-            tell("Placed " + count + (count == 1 ? " line." : " lines."));
+            succeed("Placed " + count + (count == 1 ? " line." : " lines."));
         }
 
         @Override
         public void fail(Protocol.ErrorCode code, String message) {
-            tell(message);
+            NocuftClient.fail(message);
         }
     }
 
@@ -632,14 +775,51 @@ public final class NocuftClient implements ClientModInitializer {
 
     /** Says something to the player, from any thread. */
     public static void tell(String message) {
+        tell(message, MessageTone.INFO);
+    }
+
+    private static void succeed(String message) {
+        tell(message, MessageTone.SUCCESS);
+    }
+
+    private static void warn(String message) {
+        tell(message, MessageTone.WARNING);
+    }
+
+    private static void fail(String message) {
+        tell(message, MessageTone.ERROR);
+    }
+
+    private static void progress(String message) {
+        tell(message, MessageTone.PROGRESS);
+    }
+
+    private static void tell(String message, MessageTone tone) {
         Minecraft client = Minecraft.getInstance();
         client.execute(() -> {
             if (client.player != null) {
-                client.player.sendSystemMessage(Component.literal("[Nocuft] " + message));
+                Component prefix = Component.literal("[Nocuft] ")
+                    .withStyle(ChatFormatting.DARK_AQUA);
+                Component body = Component.literal(message).withStyle(tone.color);
+                client.player.sendSystemMessage(prefix.copy().append(body));
             } else {
                 LOGGER.info("{}", message);
             }
         });
+    }
+
+    private enum MessageTone {
+        INFO(ChatFormatting.GRAY),
+        SUCCESS(ChatFormatting.GREEN),
+        WARNING(ChatFormatting.GOLD),
+        ERROR(ChatFormatting.RED),
+        PROGRESS(ChatFormatting.AQUA);
+
+        private final ChatFormatting color;
+
+        MessageTone(ChatFormatting color) {
+            this.color = color;
+        }
     }
 
     /** Builds this client is holding, newest push wins. */

@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { analyzeTypeScript } from "../analyze.js";
+import {
+    analyzeTypeScript,
+    analyzeTypeScriptProject,
+    TypeScriptAnalysisError,
+} from "../analyze.js";
 
 const tsconfigPath = fileURLToPath(
     new URL("./fixtures/hello/tsconfig.json", import.meta.url),
@@ -101,7 +105,7 @@ test("analyzes typed literals, arrays, and SDK value constructors", () => {
         { kind: "number", value: 2 },
         { kind: "boolean", value: false },
         { kind: "location", x: 1, y: 65, z: -2 },
-        { kind: "item", id: "stone" },
+        { kind: "item", id: "stone", count: 1 },
         { kind: "sound", value: "item.trident.thunder" },
     ]);
     assert.deepEqual(body[1].arguments.current_health, {
@@ -118,8 +122,8 @@ test("analyzes typed literals, arrays, and SDK value constructors", () => {
         z: -2,
     });
     assert.deepEqual(body[4].arguments.items_to_give, [
-        { kind: "item", id: "stone" },
-        { kind: "item", id: "minecraft:dirt" },
+        { kind: "item", id: "stone", count: 1 },
+        { kind: "item", id: "minecraft:dirt", count: 1 },
     ]);
 });
 
@@ -203,7 +207,7 @@ test("analyzes event registrations and the current event player", () => {
                         kind: "held_item",
                         receiver: "current_player",
                         hand: "main",
-                        item: { kind: "item", id: "minecraft:mace" },
+                        item: { kind: "item", id: "minecraft:mace", count: 1 },
                     },
                     body: [
                         {
@@ -284,6 +288,47 @@ test("analyzes event registrations and the current event player", () => {
             ],
         },
     ]);
+});
+
+test("discovers reachable imported functions while keeping events entry-only", () => {
+    const analysis = analyzeTypeScriptProject({
+        tsconfigPath: fixturePath("imported-functions", "tsconfig.json"),
+        entryFile: fixturePath("imported-functions", "plot.ts"),
+    });
+    const event = analysis.module.templates.find((template) => template.kind === "event");
+    assert.ok(event && event.kind === "event");
+    assert.equal(event.name, "join");
+    assert.deepEqual(event.body.map((statement) => statement.kind), [
+        "call_function",
+        "call_function",
+        "call_function",
+    ]);
+    const calls = event.body.filter((statement) => statement.kind === "call_function");
+    assert.equal(new Set(calls.map((statement) => statement.function)).size, 3);
+
+    const imported = analysis.module.templates.filter((template) =>
+        template.kind === "function" && template.name.startsWith("__nocuft_imported_"));
+    assert.equal(imported.length, 4);
+    assert.ok(imported.every((template) => template.kind === "function" && template.exported === false));
+    assert.ok(!analysis.module.templates.some((template) => template.name === "unused"));
+    assert.ok(!analysis.module.templates.some((template) => template.name === "ignored"));
+    assert.ok(imported.some((template) => template.kind === "function" &&
+        template.body.some((statement) => statement.kind === "set_variable")));
+    assert.ok(imported.some((template) => template.kind === "function" &&
+        template.body.some((statement) => statement.kind === "if" &&
+            statement.body.some((nested) => nested.kind === "call_function" &&
+                nested.function === template.name))));
+    assert.ok(analysis.sourceFiles.some((path) => path.endsWith("/helpers.ts")));
+    assert.ok(analysis.sourceFiles.some((path) => path.endsWith("/state.ts")));
+});
+
+test("attributes imported function failures to their source file", () => {
+    assert.throws(() => analyzeTypeScriptProject({
+        tsconfigPath: fixturePath("imported-functions-invalid", "tsconfig.json"),
+        entryFile: fixturePath("imported-functions-invalid", "plot.ts"),
+    }), (error: unknown) => error instanceof TypeScriptAnalysisError
+        && error.sourceFiles.some((path) => path.endsWith("/helper.ts"))
+        && /mutable scalar line variable/u.test(error.message));
 });
 
 test("analyzes an all-entity action", () => {
@@ -631,6 +676,8 @@ test("rejects invalid plot game variables", () => {
     for (const [file, message] of [
         ["invalid-enum.ts", /declared enum value/],
         ["invalid-name.ts", /non-empty plot variable name/],
+        ["invalid-reserved-name.ts", /not beginning with reserved %uuid prefix/],
+        ["invalid-reserved-player-name.ts", /not beginning with reserved %uuid prefix/],
     ] as const) {
         assert.throws(
             () => analyzeTypeScript({
@@ -663,5 +710,47 @@ test("uses one ordered contract for local functions and every supported value ty
     if (module.templates[1].body[0].kind === "call_function") {
         assert.equal(module.templates[1].body[0].arguments.length, 8);
         assert.deepEqual(module.templates[1].body[0].receiver, selection("player", "select.AllPlayers"));
+    }
+});
+
+test("analyzes arithmetic, logical branches, native loops, and the named countdown", () => {
+    const module = analyzeTypeScript({
+        tsconfigPath: fixturePath("control-flow", "tsconfig.json"),
+        entryFile: fixturePath("control-flow", "plot.ts"),
+    });
+
+    const arithmetic = module.templates.find((template) => template.name === "arithmetic");
+    assert.ok(arithmetic);
+    assert.equal(arithmetic.body[0].kind, "declare_line_variable");
+    assert.ok(arithmetic.body.some((statement) => statement.kind === "if"));
+    assert.equal(arithmetic.body.filter((statement) => statement.kind === "loop").length, 2);
+
+    const countdown = module.templates.find((template) => template.name === "countdown");
+    assert.ok(countdown && countdown.kind === "process");
+    const loop = countdown.body[0];
+    assert.equal(loop.kind, "loop");
+    if (loop.kind === "loop") {
+        assert.equal(loop.form, "for");
+        assert.equal(loop.condition.kind, "comparison");
+        assert.equal(loop.body[0].kind, "call_function");
+        if (loop.body[0].kind === "call_function") {
+            assert.equal(loop.body[0].arguments[0].kind, "string_template");
+        }
+    }
+});
+
+test("rejects inferred const locals and context-invalid control intrinsics", () => {
+    for (const [file, message] of [
+        ["invalid-const.ts", /initialized mutable scalar line variable/],
+        ["invalid-skip.ts", /repeat control outside a loop/],
+        ["invalid-process-return.ts", /function return control outside a function/],
+    ] as const) {
+        assert.throws(
+            () => analyzeTypeScript({
+                tsconfigPath: fixturePath("control-flow", "tsconfig.json"),
+                entryFile: fixturePath("control-flow", file),
+            }),
+            message,
+        );
     }
 });
