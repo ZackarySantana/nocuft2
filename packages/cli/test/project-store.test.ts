@@ -62,7 +62,8 @@ test("fails closed on a malformed schema", async () => {
     await assert.rejects(
         createProjectStore(path).load(),
         (error) => error instanceof ProjectStoreError
-            && error.code === "projects.invalid_config",
+            && error.code === "projects.invalid_config"
+            && error.message.endsWith(`Configuration file: ${path}`),
     );
 });
 

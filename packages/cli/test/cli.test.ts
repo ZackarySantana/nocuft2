@@ -44,6 +44,7 @@ function dependencies(initial: readonly RegisteredProject[] = []):
             created: true,
         }),
         build: async () => ({ ok: false, diagnostics: [], watchPaths: [] }),
+        installNocuft: async () => {},
     };
 }
 
@@ -110,9 +111,13 @@ test("initializes and updates a portable manifest while preserving its UUID", as
     const source = join(root, "src");
     await mkdir(source);
     await writeFile(join(root, "tsconfig.json"), "{}\n");
+    await writeFile(join(root, "package.json"), '{"devDependencies":{"nocuft":"0.1.0"}}\n');
     const entry = join(source, "plot.ts");
     await writeFile(entry, "export {};\n");
     const deps = dependencies();
+    deps.installNocuft = async () => {
+        throw new Error("nocuft should not be reinstalled when already declared");
+    };
     const derived = capture();
     assert.equal(await runCli(
         ["init", "arena", entry],
@@ -180,6 +185,40 @@ test("scaffolds a missing entry and tsconfig without replacing existing files", 
     assert.equal(await runCli(["init", "hello", entry], capture().io, deps), 0);
     assert.equal(await readFile(entry, "utf8"), "export const sentinel = true;\n");
     assert.equal(await readFile(join(root, "tsconfig.json"), "utf8"), "{}\n");
+});
+
+test("defaults a missing init entry to entry.ts", async () => {
+    const root = await mkdtemp(join(tmpdir(), "nocuft-cli-default-entry-"));
+    temporary.push(root);
+    const deps = dependencies();
+    deps.isFile = async (path) => {
+        try {
+            return (await stat(path)).isFile();
+        } catch {
+            return false;
+        }
+    };
+    deps.findTsconfig = async () => {
+        throw new Error("No tsconfig");
+    };
+    let installRoot: string | undefined;
+    deps.installNocuft = async (root) => {
+        installRoot = root;
+    };
+    const output = capture();
+    const previousDirectory = process.cwd();
+    try {
+        process.chdir(root);
+        assert.equal(await runCli(["init", "hello"], output.io, deps), 0);
+    } finally {
+        process.chdir(previousDirectory);
+    }
+
+    assert.match(await readFile(join(root, "entry.ts"), "utf8"), /Hello, world!/u);
+    assert.equal(installRoot, root);
+    assert.match(output.stdout(), /Installed nocuft as a development dependency/u);
+    const manifest = JSON.parse(await readFile(join(root, "nocuft.json"), "utf8")) as Record<string, unknown>;
+    assert.equal(manifest.entry, "entry.ts");
 });
 
 test("refuses conflicting init and imports an existing project without rewriting it", async () => {

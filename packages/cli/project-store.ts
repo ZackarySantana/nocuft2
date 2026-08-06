@@ -56,7 +56,16 @@ export function createProjectStore(path = DEFAULT_PROJECT_CONFIG_PATH): ProjectS
         serialize: serializeProjects,
     });
     return {
-        load: async () => resolveProjects(await file.read()),
+        load: async () => {
+            try {
+                return await resolveProjects(await file.read());
+            } catch (error: unknown) {
+                if (error instanceof ProjectStoreError) {
+                    throw new ProjectStoreError(error.code, `${error.message} Configuration file: ${path}`);
+                }
+                throw error;
+            }
+        },
         save: async (projects) => {
             validateResolvedProjects(projects);
             await file.write(projects.map(({ id, name, root, manifestPath }) => ({

@@ -9,8 +9,15 @@ mod for applying builds in Minecraft.
 Nocuft requires Node.js 22 or newer.
 
 ```sh
+npx nocuft init arena
+```
+
+`init` creates `entry.ts` and `tsconfig.json`, then installs `nocuft` as a
+development dependency. To install the CLI before initialization instead:
+
+```sh
 npm install --save-dev nocuft
-npx nocuft init arena src/plot.ts
+npx nocuft init arena
 ```
 
 ```ts

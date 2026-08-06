@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, stat, writeFile } from "node:fs/promises";
+import { spawn } from "node:child_process";
+import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { dirname, extname, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { colorizeCliText, supportsColor } from "./cli-color.js";
@@ -33,7 +34,7 @@ import {
 } from "./project-store.js";
 
 const GLOBAL_USAGE = `Usage:
-  nocuft init <name> <entry.ts> [options]
+  nocuft init <name> [entry.ts] [options]
   nocuft local <command> [options]
   nocuft gui [options]
   nocuft web [options]
@@ -95,14 +96,16 @@ management commands.
 `;
 
 const INIT_USAGE = `Usage:
-  nocuft init <name> <entry.ts> [options]
+  nocuft init <name> [entry.ts] [options]
 
 Options:
   -m, --module <id>          Module namespace (default: app.<name>)
   -f, --force                Replace a conflicting project definition
   -h, --help                 Show this help
 
-Creates a Hello World entry and tsconfig.json when they do not exist.
+The entry defaults to entry.ts. Creates it with a Hello World event and creates
+tsconfig.json when they do not exist.
+Installs nocuft as a development dependency when it is not already declared.
 Existing source and TypeScript configuration files are never replaced.
 `;
 
@@ -149,6 +152,7 @@ export interface CliDependencies {
     findTsconfig(start: string): Promise<string>;
     identify(entryPath: string): Promise<ProjectIdentity>;
     build(entryPath: string): Promise<ProjectBuildResult>;
+    installNocuft(root: string): Promise<void>;
     gui?: GuiDependencies;
     web?: WebDependencies;
 }
@@ -170,6 +174,7 @@ const defaultDependencies: CliDependencies = {
     findTsconfig,
     identify: readProjectIdentity,
     build: (entryPath) => buildProject({ entryPath }),
+    installNocuft,
 };
 
 type Command =
@@ -321,6 +326,10 @@ async function initialize(
         });
         io.stdout(`Created ${tsconfigPath}.\n`);
     }
+    if (!await hasNocuftDependency(root)) {
+        await dependencies.installNocuft(root);
+        io.stdout(`Installed nocuft as a development dependency in ${root}.\n`);
+    }
     if (!matches) await writeProjectManifest(manifestPath, manifest);
     const project = resolvedProject(manifest, root, manifestPath);
     await trackProject(project, command.force, dependencies.projectStore);
@@ -348,6 +357,54 @@ function starterTsconfig(entry: string): string {
         },
         include: [entry],
     }, undefined, 2)}\n`;
+}
+
+async function hasNocuftDependency(root: string): Promise<boolean> {
+    const path = join(root, "package.json");
+    let text: string;
+    try {
+        text = await readFile(path, "utf8");
+    } catch (error: unknown) {
+        if (error instanceof Error && "code" in error && error.code === "ENOENT") return false;
+        throw error;
+    }
+    let value: unknown;
+    try {
+        value = JSON.parse(text);
+    } catch {
+        throw new CliError("project.invalid_package_json", `${path} is not valid JSON.`);
+    }
+    if (!isRecord(value)) return false;
+    return ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"]
+        .some((section) => isRecord(value[section]) && Object.hasOwn(value[section], "nocuft"));
+}
+
+function installNocuft(root: string): Promise<void> {
+    return new Promise((resolvePromise, reject) => {
+        const executable = process.platform === "win32" ? "npm.cmd" : "npm";
+        const child = spawn(executable, ["install", "--save-dev", "nocuft"], {
+            cwd: root,
+            stdio: "inherit",
+        });
+        child.once("error", (error) => reject(new CliError(
+            "project.install_failed",
+            `Could not run npm install in ${root}: ${messageOf(error)}`,
+        )));
+        child.once("close", (code) => {
+            if (code === 0) {
+                resolvePromise();
+            } else {
+                reject(new CliError(
+                    "project.install_failed",
+                    `npm install --save-dev nocuft failed with exit code ${code ?? "unknown"}.`,
+                ));
+            }
+        });
+    });
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
 async function add(
@@ -701,9 +758,9 @@ function parseInit(args: readonly string[]): ParseResult {
     if (parsed.values.help === true) {
         return { ok: false, help: true, usage: INIT_USAGE };
     }
-    const [name, entry, ...extra] = parsed.positionals;
-    if (name === undefined || entry === undefined || extra.length > 0) {
-        return failure("The init command requires one name and one entry file.", INIT_USAGE);
+    const [name, entry = "entry.ts", ...extra] = parsed.positionals;
+    if (name === undefined || extra.length > 0) {
+        return failure("The init command requires one name and accepts one optional entry file.", INIT_USAGE);
     }
     if (!validProjectName(name)) {
         return failure("Project names must be lowercase identifiers up to 64 characters.", INIT_USAGE);

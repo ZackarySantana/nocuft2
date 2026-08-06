@@ -4,8 +4,15 @@ Nocuft is a TypeScript toolchain for building and deploying DiamondFire code.
 This public package contains both the compile-time SDK and the `nocuft` CLI.
 
 ```sh
+npx nocuft init arena
+```
+
+`init` creates `entry.ts` and `tsconfig.json`, then installs `nocuft` as a
+development dependency. To install it before initialization instead:
+
+```sh
 npm install --save-dev nocuft
-npx nocuft init arena src/plot.ts
+npx nocuft init arena
 ```
 
 The SDK declarations describe DiamondFire values and operations. Nocuft reads

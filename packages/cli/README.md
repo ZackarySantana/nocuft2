@@ -13,13 +13,15 @@ npx nocuft --help
 Initialize a project once:
 
 ```sh
+npx nocuft init arena
 npx nocuft init arena src/plot.ts
 npx nocuft init arena src/plot.ts --module games.arena
 ```
 
-When the entry file or TypeScript configuration does not exist, `init` creates
-a strict `tsconfig.json` and a player-join Hello World event. Existing files are
-left unchanged.
+The entry defaults to `entry.ts`. When the entry file or TypeScript
+configuration does not exist, `init` creates a strict `tsconfig.json` and a
+player-join Hello World event. It also runs `npm install --save-dev nocuft`
+unless the package is already declared. Existing files are left unchanged.
 
 The entry file owns event and process registrations. It may import named
 top-level `void` functions from other project source files; reachable imported
